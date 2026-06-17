@@ -19,7 +19,9 @@ class DataProcessor {
 
   // Load dataset into memory
   loadDataset(data) {
-    this.rawDataset = data.map(row => this.cleanRow(row));
+    this.rawDataset = data
+      .map(row => this.cleanRow(row))
+      .filter(row => row && row["Counselor Email"] && row["Date"]);
     this.updateMetadata();
     this.applyFilters();
   }
@@ -60,6 +62,7 @@ class DataProcessor {
   cleanRow(row) {
     const getNum = (val, fallback = 0) => {
       if (val === undefined || val === null || val === "") return fallback;
+      if (typeof val === "number") return val;
       const num = parseFloat(String(val).replace(/[^0-9.-]/g, ""));
       return isNaN(num) ? fallback : num;
     };
@@ -69,58 +72,92 @@ class DataProcessor {
       return String(val).trim();
     };
 
-    const counselorEmail = getString(row["Counselor Email"] || row["counselor_email"] || row["Email"] || row["counsellor_email"]);
-    const counselorName = getString(row["Counsellor Name"] || row["Counselor Name"] || counselorEmail.split("@")[0].split(".").map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(" "));
+    const allowedColumns = [
+      "Date", "Counselor Email", "Team Lead", "Manager", "Campaign", 
+      "Dialled Calls", "Connected calls", "Effective calls", "Talktime (In hours)", 
+      "Target", "Total admissions", "Shared admissions", "Shared admissions Form Filled", 
+      "Additional Adm", "Penalty", "Total Adm", "Total Adm(form Filled)", 
+      "EMI Paid", "Full Payment On spot", "Conversion %", "VP Retention", 
+      "Attendance", "Auto Dial", "Manual Dial", "AI", "FY 27", 
+      "CC/FT/Board", "FY 26", "CJR", "Status", "Counsellor discount", 
+      "Counsellor discount-FY 27", "Manager discount", "Other Discount", 
+      "Joining date", "No. of days", "Band"
+    ];
 
-    const cleanDate = this.parseExcelDate(row["Date"] || row["date"]);
+    const numericCols = [
+      "Dialled Calls", "Connected calls", "Effective calls", "Target", 
+      "Total admissions", "Shared admissions", "Shared admissions Form Filled", 
+      "Additional Adm", "Penalty", "Total Adm(form Filled)", "EMI Paid", 
+      "Full Payment On spot", "VP Retention", "Auto Dial", "Manual Dial", "AI", 
+      "FY 27", "CC/FT/Board", "FY 26", "CJR", "Counsellor discount", 
+      "Counsellor discount-FY 27", "Manager discount", "Other Discount", 
+      "No. of days"
+    ];
 
-    const dialled = getNum(row["Dialled Calls"] || row["dialled_calls"] || row["Dials"] || row["Dialled"]);
-    const connected = getNum(row["Connected Calls"] || row["Connected calls"] || row["connected_calls"] || row["Connections"] || row["Connected"]);
-    const effective = getNum(row["Effective Calls"] || row["Effective calls"] || row["effective_calls"] || row["Effective"]);
-    
-    let talktime = getNum(row["Talktime"] || row["Talk Time"] || row["talktime"]);
-    if (row["Talktime (In hours)"] !== undefined && row["Talktime (In hours)"] !== "") {
-      talktime = getNum(row["Talktime (In hours)"]) * 3600; // convert hours to seconds
-    }
-    
-    const admissions = getNum(row["Total Admissions"] || row["Total admissions"] || row["Total Adm"] || row["total_admissions"] || row["Admissions"] || row["admissions"]);
-    
-    // Recalculate conversion percentage to ensure consistency across decimal and percentage formats
-    const convPct = connected > 0 ? parseFloat(((admissions / connected) * 100).toFixed(2)) : 0;
+    const dateCols = ["Date", "Joining date"];
 
-    return {
-      "Date": cleanDate,
-      "Counselor Email": counselorEmail,
-      "Counsellor Name": counselorName,
-      "Team Lead": getString(row["Team Lead"] || row["team_lead"] || row["TL"]),
-      "Manager": getString(row["Manager"] || row["manager"]),
-      "Campaign": getString(row["Campaign"] || row["campaign"]),
-      "Dialled Calls": dialled,
-      "Connected Calls": connected,
-      "Effective Calls": effective,
-      "Talktime": talktime, // store in seconds
-      "Target": getNum(row["Target"] || row["target"], 30), // Default target 30 if not set
-      "Total Admissions": admissions,
-      "Shared Admissions": getNum(row["Shared Admissions"] || row["Shared admissions"] || row["shared_admissions"]),
-      "Additional Admissions": getNum(row["Additional Adm"] || row["Additional Admissions"] || row["additional_admissions"]),
-      "Total Admissions Form Filled": getNum(row["Total Adm(form Filled)"] || row["Total Admissions Form Filled"] || row["Form Filled"] || row["form_filled"]),
-      "EMI Paid": getNum(row["EMI Paid"] || row["emi_paid"]),
-      "Full Payment On Spot": getNum(row["Full Payment On Spot"] || row["Full Payment On spot"] || row["full_payment_on_spot"]),
-      "Conversion Percentage": convPct,
-      "Attendance": getString(row["Attendance"] || row["attendance"], "Present"),
-      "Auto Dial": getNum(row["Auto Dial"] || row["auto_dial"]),
-      "Manual Dial": getNum(row["Manual Dial"] || row["manual_dial"]),
-      "AI": getNum(row["AI"] || row["ai"]),
-      "FY26": getNum(row["FY 26"] || row["FY26"] || row["fy26"]),
-      "FY27": getNum(row["FY 27"] || row["FY27"] || row["fy27"]),
-      "CJR": getNum(row["CJR"] || row["cjr"]),
-      "Status": getString(row["Status"] || row["status"], "Active"),
-      "Counsellor Discount": getNum(row["Counsellor discount"] || row["Counsellor discount-FY 27"] || row["Counsellor Discount"] || row["counsellor_discount"]),
-      "Manager Discount": getNum(row["Manager discount"] || row["Manager Discount"] || row["manager_discount"]),
-      "Joining Date": this.parseExcelDate(row["Joining Date"] || row["Joining date"] || row["joining_date"]),
-      "Number of Days": getNum(row["No. of days"] || row["Number of Days"] || row["number_of_days"]),
-      "Band": getString(row["Band"] || row["band"], "Band B")
-    };
+    const result = {};
+
+    allowedColumns.forEach(col => {
+      let val = undefined;
+      const aliases = {
+        "Connected calls": ["Connected Calls", "Connected calls", "connected_calls", "Connections", "Connected"],
+        "Effective calls": ["Effective Calls", "Effective calls", "effective_calls", "Effective"],
+        "Total admissions": ["Total Admissions", "Total admissions", "Total Adm", "total_admissions", "Admissions", "admissions"],
+        "Shared admissions": ["Shared Admissions", "Shared admissions", "shared_admissions"],
+        "Additional Adm": ["Additional Admissions", "Additional Adm", "additional_admissions"],
+        "Total Adm(form Filled)": ["Total Admissions Form Filled", "Total Adm(form Filled)", "Form Filled", "form_filled"],
+        "Full Payment On spot": ["Full Payment On Spot", "Full Payment On spot", "full_payment_on_spot"],
+        "Counsellor discount": ["Counsellor discount", "Counsellor Discount", "counsellor_discount"],
+        "Counsellor discount-FY 27": ["Counsellor discount-FY 27"],
+        "Manager discount": ["Manager discount", "Manager Discount", "manager_discount"],
+        "Joining date": ["Joining date", "Joining Date", "joining_date"],
+        "No. of days": ["No. of days", "Number of Days", "number_of_days"],
+        "FY 27": ["FY 27", "FY27", "fy27"],
+        "FY 26": ["FY 26", "FY26", "fy26"]
+      };
+
+      const keysToSearch = aliases[col] || [col];
+      for (const key of keysToSearch) {
+        const matchingKey = Object.keys(row).find(k => k.trim().toLowerCase() === key.toLowerCase());
+        if (matchingKey !== undefined) {
+          val = row[matchingKey];
+          break;
+        }
+      }
+
+      // Process value based on type
+      if (dateCols.includes(col)) {
+        result[col] = this.parseExcelDate(val);
+      } else if (numericCols.includes(col)) {
+        result[col] = getNum(val);
+      } else if (col === "Talktime (In hours)") {
+        if (val !== undefined && val !== "") {
+          result[col] = getNum(val);
+        } else {
+          const secVal = row["Talktime"] || row["Talk Time"] || row["talktime"];
+          result[col] = secVal !== undefined ? parseFloat((getNum(secVal) / 3600).toFixed(4)) : 0;
+        }
+      } else if (col === "Conversion %") {
+        if (val !== undefined && val !== "") {
+          result[col] = getNum(val);
+        } else {
+          const connected = result["Connected calls"] || 0;
+          const admissions = result["Total admissions"] || 0;
+          result[col] = connected > 0 ? parseFloat(((admissions / connected) * 100).toFixed(2)) : 0;
+        }
+      } else if (col === "Total Adm") {
+        result[col] = val !== undefined ? val : 0;
+      } else {
+        let fallback = "";
+        if (col === "Attendance") fallback = "Present";
+        else if (col === "Status") fallback = "Active";
+        else if (col === "Band") fallback = "Band B";
+        result[col] = getString(val, fallback);
+      }
+    });
+
+    return result;
   }
 
   // Get unique lists of metadata for drop-downs and profiles
@@ -138,13 +175,13 @@ class DataProcessor {
       
       return {
         email: email,
-        name: latest["Counsellor Name"] || email.split("@")[0],
+        name: email.split("@")[0].split(".").map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(" "),
         teamLead: latest["Team Lead"] || "N/A",
         manager: latest["Manager"] || "N/A",
         campaign: latest["Campaign"] || "N/A",
         band: latest["Band"] || "Band B",
         status: latest["Status"] || "Active",
-        joiningDate: latest["Joining Date"] || "2025-01-01",
+        joiningDate: latest["Joining date"] || "2025-01-01",
         target: target
       };
     });
@@ -263,20 +300,20 @@ class DataProcessor {
 
     dataset.forEach(r => {
       counts.totalDials += r["Dialled Calls"];
-      counts.totalConnected += r["Connected Calls"];
-      counts.totalEffective += r["Effective Calls"];
-      counts.totalTalktime += r["Talktime"];
-      counts.totalAdmissions += r["Total Admissions"];
-      counts.totalSharedAdmissions += r["Shared Admissions"];
-      counts.totalAdditionalAdmissions += r["Additional Admissions"];
-      counts.totalFormFilled += r["Total Admissions Form Filled"];
+      counts.totalConnected += r["Connected calls"];
+      counts.totalEffective += r["Effective calls"];
+      counts.totalTalktime += r["Talktime (In hours)"] * 3600;
+      counts.totalAdmissions += r["Total admissions"];
+      counts.totalSharedAdmissions += r["Shared admissions"];
+      counts.totalAdditionalAdmissions += r["Additional Adm"];
+      counts.totalFormFilled += r["Total Adm(form Filled)"];
       counts.totalEmiPaid += r["EMI Paid"];
-      counts.totalFullPayment += r["Full Payment On Spot"];
+      counts.totalFullPayment += r["Full Payment On spot"];
       counts.totalAutoDial += r["Auto Dial"];
       counts.totalManualDial += r["Manual Dial"];
       counts.totalAiDials += r["AI"];
-      counts.totalCounsellorDiscount += r["Counsellor Discount"];
-      counts.totalManagerDiscount += r["Manager Discount"];
+      counts.totalCounsellorDiscount += r["Counsellor discount"];
+      counts.totalManagerDiscount += r["Manager discount"];
       
       if (r["Counselor Email"]) {
         counts.uniqueCounsellors.add(r["Counselor Email"]);
@@ -343,10 +380,10 @@ class DataProcessor {
         groups[r["Date"]] = { dialled: 0, connected: 0, effective: 0, admissions: 0, talktime: 0 };
       }
       groups[r["Date"]].dialled += r["Dialled Calls"];
-      groups[r["Date"]].connected += r["Connected Calls"];
-      groups[r["Date"]].effective += r["Effective Calls"];
-      groups[r["Date"]].admissions += r["Total Admissions"];
-      groups[r["Date"]].talktime += r["Talktime"];
+      groups[r["Date"]].connected += r["Connected calls"];
+      groups[r["Date"]].effective += r["Effective calls"];
+      groups[r["Date"]].admissions += r["Total admissions"];
+      groups[r["Date"]].talktime += r["Talktime (In hours)"] * 3600;
     });
 
     return Object.keys(groups).sort().map(date => ({

@@ -29,60 +29,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --- INITIALIZATION ---
   function init() {
-    // Check LocalStorage for cached dataset first
-    const cached = localStorage.getItem("ai_counsellor_dataset");
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        // If it contains mock email 'sneha.sharma@edu.com', ignore cache to load the real Excel instead
-        const isMock = parsed.some(r => r["Counselor Email"] === "sneha.sharma@edu.com");
-        if (!isMock && parsed.length > 0) {
-          dp.loadDataset(parsed);
-          document.getElementById("data-status-text").textContent = "Cached Dataset Loaded";
-          document.getElementById("data-status-dot").style.backgroundColor = "var(--accent-info)";
-          document.getElementById("data-status-dot").style.boxShadow = "var(--glow-shadow-info)";
-          finishInit();
-          return;
-        }
-      } catch (err) {
-        console.error("Failed to parse cached dataset, checking server file.", err);
-      }
-    }
+    // Start fresh: do not load cache, do not auto-fetch server file, do not load mock data
+    const uploadOverlay = document.getElementById("upload-prompt-overlay");
+    if (uploadOverlay) uploadOverlay.style.display = "flex";
 
-    // Attempt to automatically fetch the sheet from the server on startup
-    fetch("May%20dod%20data%20.xlsx")
-      .then(response => {
-        if (!response.ok) throw new Error("Excel file not found on server");
-        return response.arrayBuffer();
-      })
-      .then(buffer => {
-        const workbook = XLSX.read(new Uint8Array(buffer), { type: "array", cellDates: true });
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
-        const json = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
-        
-        if (json.length > 0) {
-          dp.loadDataset(json);
-          document.getElementById("data-status-text").textContent = "Real Excel Data Active";
-          document.getElementById("data-status-dot").style.backgroundColor = "var(--accent-info)";
-          document.getElementById("data-status-dot").style.boxShadow = "var(--glow-shadow-info)";
-          // Cache in LocalStorage
-          try {
-            localStorage.setItem("ai_counsellor_dataset", JSON.stringify(dp.rawDataset));
-          } catch(e) {
-            console.warn("Could not save to LocalStorage (data size limit exceeded).", e);
-          }
-        } else {
-          throw new Error("Uploaded sheet is empty");
-        }
-        finishInit();
-      })
-      .catch(err => {
-        console.warn("Could not load May dod data .xlsx from server, falling back to mock data.", err);
-        dp.loadDataset(window.MOCK_DATA);
-        document.getElementById("data-status-text").textContent = "Using Mock Dataset";
-        finishInit();
-      });
+    document.getElementById("data-status-text").textContent = "No File Uploaded";
+    document.getElementById("data-status-dot").style.backgroundColor = "var(--accent-critical)";
+    document.getElementById("data-status-dot").style.boxShadow = "var(--glow-shadow-critical)";
+
+    // Bind Event Listeners
+    bindEvents();
   }
 
   function finishInit() {
@@ -219,17 +175,30 @@ document.addEventListener("DOMContentLoaded", () => {
           return;
         }
         
+        // Hide upload prompt overlay
+        const uploadOverlay = document.getElementById("upload-prompt-overlay");
+        if (uploadOverlay) uploadOverlay.style.display = "none";
+
         // Success
         document.getElementById("data-status-text").textContent = "Uploaded Sheet Active";
         document.getElementById("data-status-dot").style.backgroundColor = "var(--accent-info)";
         document.getElementById("data-status-dot").style.boxShadow = "var(--glow-shadow-info)";
         
+        // Set Date Range dynamically from uploaded dataset min/max dates
+        const dateOpts = dp.getFiltersOptions();
+        document.getElementById("filter-start-date").value = dateOpts.minDate;
+        document.getElementById("filter-end-date").value = dateOpts.maxDate;
+        dp.setFilter("startDate", dateOpts.minDate);
+        dp.setFilter("endDate", dateOpts.maxDate);
+
         // Reset and populate filters
         populateFilterDropdowns();
         if (dp.counsellorsList.length > 0) {
           activeCounsellorEmail = dp.counsellorsList[0].email;
           populateProfileSelector();
         }
+        
+        // Draw views
         onFiltersChanged();
       });
     });
@@ -368,14 +337,19 @@ document.addEventListener("DOMContentLoaded", () => {
       dp.setFilter("counsellorEmail", "all");
     } else if (activeRole === "lead") {
       indicator.style.backgroundColor = "var(--accent-warning)";
-      // Force filter to only show TL Amit Singh's team
-      dp.setFilter("teamLead", "Amit Singh");
+      // Dynamically select the first available Team Lead, falling back to "Amit Singh" if in dataset
+      const leads = dp.getFiltersOptions().teamLeads;
+      const defaultLead = leads.includes("Amit Singh") ? "Amit Singh" : (leads[0] || "None");
+      dp.setFilter("teamLead", defaultLead);
       dp.setFilter("counsellorEmail", "all");
     } else if (activeRole === "counsellor") {
       indicator.style.backgroundColor = "var(--accent-critical)";
-      // Force filter to Sneha Sharma's email
-      dp.setFilter("counsellorEmail", "sneha.sharma@edu.com");
-      activeCounsellorEmail = "sneha.sharma@edu.com";
+      // Dynamically select the first available Counselor, falling back to "sneha.sharma@edu.com" if in dataset
+      const defaultEmail = dp.counsellorsList.some(c => c.email === "sneha.sharma@edu.com") ? 
+        "sneha.sharma@edu.com" : 
+        (dp.counsellorsList[0] ? dp.counsellorsList[0].email : "");
+      dp.setFilter("counsellorEmail", defaultEmail);
+      activeCounsellorEmail = defaultEmail;
     }
 
     // Refresh profile selectors
@@ -835,10 +809,10 @@ document.addEventListener("DOMContentLoaded", () => {
     return records.map(r => ({
       date: r["Date"],
       dialled: r["Dialled Calls"],
-      connected: r["Connected Calls"],
-      effective: r["Effective Calls"],
-      admissions: r["Total Admissions"],
-      talktime: r["Talktime"]
+      connected: r["Connected calls"],
+      effective: r["Effective calls"],
+      admissions: r["Total admissions"],
+      talktime: r["Talktime (In hours)"] * 3600
     })).sort((a,b) => new Date(a.date) - new Date(b.date));
   }
 
@@ -871,8 +845,8 @@ document.addEventListener("DOMContentLoaded", () => {
         };
       }
 
-      groups[key].admissions += row["Total Admissions"];
-      groups[key].connected += row["Connected Calls"];
+      groups[key].admissions += row["Total admissions"];
+      groups[key].connected += row["Connected calls"];
       groups[key].counsellorEmails.add(row["Counselor Email"]);
       groups[key].rows.push(row);
     });
@@ -1117,8 +1091,8 @@ document.addEventListener("DOMContentLoaded", () => {
     dp.filteredDataset.forEach(r => {
       const key = r["Campaign"];
       if (!camps[key]) camps[key] = { adm: 0, conn: 0 };
-      camps[key].adm += r["Total Admissions"];
-      camps[key].conn += r["Connected Calls"];
+      camps[key].adm += r["Total admissions"];
+      camps[key].conn += r["Connected calls"];
     });
 
     const campRates = Object.keys(camps).map(k => ({

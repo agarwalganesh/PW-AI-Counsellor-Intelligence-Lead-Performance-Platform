@@ -168,6 +168,14 @@
           <button class="no-data-btn" id="reset-role-btn">Switch to Manager Role</button>
         </div>
 
+        <!-- UPLOAD PROMPT OVERLAY -->
+        <div class="no-data-overlay" id="upload-prompt-overlay" style="display:flex;">
+          <div class="no-data-icon">📁</div>
+          <h2 class="no-data-title">No Excel Sheet Active</h2>
+          <p class="no-data-desc">Please upload a counsellor performance Excel sheet (like April or May data) to begin dashboard analysis.</p>
+          <label for="excel-file-input" class="no-data-btn" style="cursor: pointer; text-align: center; display: inline-block;">Upload Excel File</label>
+        </div>
+
         <!-- 1. EXECUTIVE DASHBOARD -->
         <section class="dashboard-view active" id="view-executive">
           
@@ -749,11 +757,11 @@
   </div>
 
   <!-- LOAD THE SCRIPTS IN LOGICAL SEQUENCE -->
-  <script src="mock-data.js"></script>
-  <script src="data-processor.js"></script>
-  <script src="analytics-engine.js"></script>
-  <script src="charts.js"></script>
-  <script src="exporter.js"></script>
-  <script src="app.js"></script>
+  <script src="mock-data.js?v=2"></script>
+  <script src="data-processor.js?v=2"></script>
+  <script src="analytics-engine.js?v=2"></script>
+  <script src="charts.js?v=2"></script>
+  <script src="exporter.js?v=2"></script>
+  <script src="app.js?v=2"></script>
 </body>
 </html>

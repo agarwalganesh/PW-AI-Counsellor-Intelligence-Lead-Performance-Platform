@@ -329,7 +329,7 @@ class AnalyticsEngine {
     // Admissions in last 7 days of the log, or average per day
     const sortedRecords = [...rawRecords].sort((a,b) => new Date(a["Date"]) - new Date(b["Date"]));
     const last7Days = sortedRecords.slice(-7);
-    const admissionsLast7 = last7Days.reduce((acc, r) => acc + r["Total Admissions"], 0);
+    const admissionsLast7 = last7Days.reduce((acc, r) => acc + r["Total admissions"], 0);
     const recentRunrate = last7Days.length > 0 ? (admissionsLast7 / last7Days.length) : 0;
     
     // Average run-rate since joining/start
