@@ -264,6 +264,31 @@ document.addEventListener("DOMContentLoaded", () => {
         renderTeamCompareView(category);
       });
     });
+
+    // Mobile Navigation Drawer Toggle Handlers
+    const sidebar = document.querySelector(".sidebar");
+    const overlay = document.getElementById("sidebar-overlay");
+    const menuToggle = document.getElementById("mobile-menu-toggle");
+
+    if (menuToggle && sidebar && overlay) {
+      menuToggle.addEventListener("click", () => {
+        sidebar.classList.toggle("open");
+        overlay.classList.toggle("open");
+      });
+
+      overlay.addEventListener("click", () => {
+        sidebar.classList.remove("open");
+        overlay.classList.remove("open");
+      });
+
+      // Close drawer automatically when clicking navigation items on mobile viewport
+      document.querySelectorAll(".sidebar-nav-link").forEach(link => {
+        link.addEventListener("click", () => {
+          sidebar.classList.remove("open");
+          overlay.classList.remove("open");
+        });
+      });
+    }
   }
 
   // Handle updates when filters change
