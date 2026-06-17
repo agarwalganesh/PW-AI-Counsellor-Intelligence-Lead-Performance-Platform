@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Counsellor Intelligence & Lead Performance Platform</title>
+  <!-- Tailwind CSS is avoided per guidelines; vanilla styling is loaded -->
+  <link rel="stylesheet" href="styles.css">
+  
+  <!-- SheetJS (XLSX) for client-side Excel upload processing -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Chart.js for data visualization -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- SIDEBAR NAVIGATION -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-icon">Ω</div>
+        <div class="brand-name">Counsellor.AI</div>
+      </div>
+      
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-item">
+          <a class="sidebar-nav-link active" data-view="view-executive">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+            Executive Dashboard
+          </a>
+        </li>
+        <li class="sidebar-nav-item">
+          <a class="sidebar-nav-link" data-view="view-performance">
+            <svg viewBox="0 0 24 24"><path d="M12 20h9M3 20v-8c0-1.1.9-2 2-2h4m-6 10h6m0 0v-5c0-1.1.9-2 2-2h4m-6 7h6m0 0V4c0-1.1.9-2 2-2h4m-6 18h6"/></svg>
+            Counsellor Metrics
+          </a>
+        </li>
+        <li class="sidebar-nav-item">
+          <a class="sidebar-nav-link" data-view="view-rankings">
+            <svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+            Leaderboards
+          </a>
+        </li>
+        <li class="sidebar-nav-item">
+          <a class="sidebar-nav-link" data-view="view-profile">
+            <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            Counsellor Profile
+          </a>
+        </li>
+        <li class="sidebar-nav-item">
+          <a class="sidebar-nav-link" data-view="view-team-compare">
+            <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Team Comparison
+          </a>
+        </li>
+        <li class="sidebar-nav-item">
+          <a class="sidebar-nav-link" data-view="view-risk">
+            <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            Predictions & Risk
+          </a>
+        </li>
+        <li class="sidebar-nav-item">
+          <a class="sidebar-nav-link" data-view="view-lead-quality">
+            <svg viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+            Lead Intelligence
+          </a>
+        </li>
+        <li class="sidebar-nav-item">
+          <a class="sidebar-nav-link" data-view="view-funnel">
+            <svg viewBox="0 0 24 24"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>
+            Funnel analysis
+          </a>
+        </li>
+        <li class="sidebar-nav-item">
+          <a class="sidebar-nav-link" data-view="view-recommendations">
+            <svg viewBox="0 0 24 24"><path d="M9.59 4.59A2 2 0 1 1 11 8H9V6h.59z"/><path d="M21 11.5a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0z"/><path d="M12 7v5l3 3"/></svg>
+            AI Recommendations
+          </a>
+        </li>
+      </ul>
+      
+      <!-- DATA UPLOADER FOOTER -->
+      <div class="sidebar-footer">
+        <div class="file-upload-container">
+          <label for="excel-file-input" class="upload-btn-label">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Upload Excel Sheet
+          </label>
+          <input type="file" id="excel-file-input" accept=".xlsx, .xls, .csv">
+          
+          <div class="dataset-badge">
+            <div class="dataset-indicator" id="data-status-dot"></div>
+            <span id="data-status-text">Using Mock Dataset</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+    
+    <!-- MAIN APPLICATION FRAME -->
+    <main class="main-content">
+      
+      <!-- TOP FILTER HEADER -->
+      <header class="top-header">
+        <div class="header-title-section">
+          <h1 id="view-title">Executive Dashboard</h1>
+          <p id="view-subtitle">AI-powered summary & critical pipeline metrics</p>
+        </div>
+        
+        <div class="header-filters">
+          <!-- Date Range Filters -->
+          <div class="filter-group">
+            <span class="filter-label">From:</span>
+            <input type="date" id="filter-start-date" class="date-picker-input">
+            <span class="filter-label">To:</span>
+            <input type="date" id="filter-end-date" class="date-picker-input">
+          </div>
+          
+          <!-- Manager Filters -->
+          <div class="filter-group">
+            <span class="filter-label">Mgr:</span>
+            <select id="filter-manager" class="filter-select">
+              <option value="all">All Managers</option>
+            </select>
+          </div>
+          
+          <!-- TL Filters -->
+          <div class="filter-group">
+            <span class="filter-label">TL:</span>
+            <select id="filter-team-lead" class="filter-select">
+              <option value="all">All Leads</option>
+            </select>
+          </div>
+          
+          <!-- Campaign Filters -->
+          <div class="filter-group">
+            <span class="filter-label">Camp:</span>
+            <select id="filter-campaign" class="filter-select">
+              <option value="all">All Campaigns</option>
+            </select>
+          </div>
+          
+          <!-- Role Permission Simulator -->
+          <div class="role-badge-container">
+            <div class="role-icon" id="role-indicator"></div>
+            <select id="role-selector" class="role-selector-dropdown">
+              <option value="manager">Role: Manager</option>
+              <option value="lead">Role: Team Lead</option>
+              <option value="counsellor">Role: Counsellor</option>
+            </select>
+          </div>
+        </div>
+      </header>
+      
+      <!-- MAIN VIEWPORT CONTENT -->
+      <div class="dashboard-viewport">
+        
+        <!-- ACCESS DENIED WATERMARK OVERLAY -->
+        <div class="no-data-overlay" id="access-denied-overlay" style="display:none;">
+          <div class="no-data-icon">🔒</div>
+          <h2 class="no-data-title">Restricted View Access</h2>
+          <p class="no-data-desc">Your current role permissions (Team Lead/Counsellor) restrict you from viewing aggregate dashboards or comparative insights.</p>
+          <button class="no-data-btn" id="reset-role-btn">Switch to Manager Role</button>
+        </div>
+
+        <!-- 1. EXECUTIVE DASHBOARD -->
+        <section class="dashboard-view active" id="view-executive">
+          
+          <!-- AI Insights Feed Header -->
+          <div class="insights-ticker">
+            <div class="insights-tag">AI Insights</div>
+            <div class="insights-content" id="insights-feed-container">
+              <!-- Dynamically populated slides -->
+            </div>
+            <div class="insights-nav" id="insights-feed-nav"></div>
+          </div>
+
+          <!-- KPI Cards Grid -->
+          <div class="kpi-grid">
+            <div class="kpi-card info">
+              <div class="kpi-header">
+                <span class="kpi-title">Total Counsellors</span>
+                <div class="kpi-icon-wrapper">
+                  <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                </div>
+              </div>
+              <div class="kpi-value" id="kpi-counsellors">-</div>
+              <div class="kpi-trend neutral" id="kpi-counsellors-sub">Active in dataset</div>
+            </div>
+            
+            <div class="kpi-card safe">
+              <div class="kpi-header">
+                <span class="kpi-title">Total Admissions</span>
+                <div class="kpi-icon-wrapper">
+                  <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                </div>
+              </div>
+              <div class="kpi-value" id="kpi-admissions">-</div>
+              <div class="kpi-trend up" id="kpi-admissions-target-gap">-</div>
+            </div>
+            
+            <div class="kpi-card warning">
+              <div class="kpi-header">
+                <span class="kpi-title">Overall Conversion</span>
+                <div class="kpi-icon-wrapper">
+                  <svg viewBox="0 0 24 24"><path d="M23 6l-9.5 9.5-5-5L1 18"/></svg>
+                </div>
+              </div>
+              <div class="kpi-value" id="kpi-conversion">-</div>
+              <div class="kpi-trend" id="kpi-conversion-status">Of Connected Calls</div>
+            </div>
+            
+            <div class="kpi-card critical">
+              <div class="kpi-header">
+                <span class="kpi-title">High Risk Staff</span>
+                <div class="kpi-icon-wrapper">
+                  <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+                </div>
+              </div>
+              <div class="kpi-value" id="kpi-high-risk">-</div>
+              <div class="kpi-trend down" id="kpi-high-risk-status">Target miss probability >60%</div>
+            </div>
+          </div>
+
+          <!-- Charts Row -->
+          <div class="dashboard-row-grid">
+            <div class="dashboard-panel">
+              <div class="panel-header">
+                <h3 class="panel-title">
+                  <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                  Daily Calling & Engagement Trends
+                </h3>
+              </div>
+              <div class="panel-body">
+                <div class="chart-container">
+                  <canvas id="exec-activity-chart"></canvas>
+                </div>
+              </div>
+            </div>
+            
+            <div class="dashboard-panel">
+              <div class="panel-header">
+                <h3 class="panel-title">
+                  <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                  Target Progress Run-rate
+                </h3>
+              </div>
+              <div class="panel-body">
+                <div class="chart-container">
+                  <canvas id="exec-target-chart"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Top / Risk Lists Row -->
+          <div class="dashboard-row-three-grid">
+            <div class="dashboard-panel">
+              <div class="panel-header">
+                <h3 class="panel-title">⭐ Top Performers</h3>
+              </div>
+              <div class="panel-body" id="exec-top-performers-list">
+                <!-- Javascript builds list -->
+              </div>
+            </div>
+            
+            <div class="dashboard-panel">
+              <div class="panel-header">
+                <h3 class="panel-title">⚠️ High Risk Alerts</h3>
+              </div>
+              <div class="panel-body" id="exec-high-risk-list">
+                <!-- Javascript builds list -->
+              </div>
+            </div>
+
+            <div class="dashboard-panel">
+              <div class="panel-header">
+                <h3 class="panel-title">💡 Instant Recommendations</h3>
+              </div>
+              <div class="panel-body" id="exec-recommendations-list">
+                <!-- Javascript builds list -->
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 2. COUNSELLOR PERFORMANCE METRICS -->
+        <section class="dashboard-view" id="view-performance">
+          <div class="dashboard-panel">
+            <div class="panel-header">
+              <h3 class="panel-title">Counsellor Performance Metrics</h3>
+              <div class="panel-actions">
+                <input type="text" id="search-counsellor" placeholder="Search by name/email..." class="filter-select" style="width:200px;">
+                <select id="filter-performance-band" class="filter-select">
+                  <option value="all">All Bands</option>
+                  <option value="Band A">Band A</option>
+                  <option value="Band B">Band B</option>
+                  <option value="Band C">Band C</option>
+                </select>
+              </div>
+            </div>
+            
+            <div class="panel-body">
+              <div class="table-responsive">
+                <table class="data-table" id="metrics-table">
+                  <thead>
+                    <tr>
+                      <th>Counsellor</th>
+                      <th>TL / Manager</th>
+                      <th>Campaign</th>
+                      <th>Attendance</th>
+                      <th>Target</th>
+                      <th>Admissions</th>
+                      <th>Conversion %</th>
+                      <th>Dials</th>
+                      <th>Connects</th>
+                      <th>Effective</th>
+                      <th>Avg Talktime</th>
+                      <th>Fair Score</th>
+                      <th>Risk</th>
+                    </tr>
+                  </thead>
+                  <tbody id="metrics-table-body">
+                    <!-- Javascript builds rows -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 3. LEADERBOARDS & RANKINGS -->
+        <section class="dashboard-view" id="view-rankings">
+          <div class="tabs-container">
+            <button class="tab-btn active" data-rank="top">Top Performers</button>
+            <button class="tab-btn" data-rank="improved">Most Improved</button>
+            <button class="tab-btn" data-rank="closers">Best Closers</button>
+            <button class="tab-btn" data-rank="risk">High Risk</button>
+            <button class="tab-btn" data-rank="lazy">Low Activity</button>
+          </div>
+
+          <div class="dashboard-panel">
+            <div class="panel-header">
+              <h3 class="panel-title" id="rankings-panel-title">Leaderboard: Top Performers</h3>
+            </div>
+            <div class="panel-body">
+              <div class="table-responsive">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Rank</th>
+                      <th>Counsellor</th>
+                      <th>Admissions</th>
+                      <th>Target Achievement %</th>
+                      <th>Conversion Rate</th>
+                      <th>Avg Daily Dials</th>
+                      <th>Risk Score</th>
+                      <th>Fair Performance</th>
+                    </tr>
+                  </thead>
+                  <tbody id="rankings-table-body">
+                    <!-- Javascript builds rows -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 4. COUNSELLOR PROFILE INTELLIGENCE -->
+        <section class="dashboard-view" id="view-profile">
+          <div class="tabs-container" style="justify-content: flex-start; gap: 10px; border:none; background:transparent; padding:0;">
+            <span class="filter-label" style="align-self: center;">Select Profile:</span>
+            <select id="profile-selector-dropdown" class="filter-select" style="min-width: 250px;">
+              <!-- Javascript populates -->
+            </select>
+          </div>
+
+          <div class="profile-shell">
+            <div class="profile-sidebar">
+              
+              <!-- Profile Card -->
+              <div class="profile-card">
+                <div class="profile-avatar" id="prof-avatar">?</div>
+                <h2 class="profile-name" id="prof-name">-</h2>
+                <p class="profile-email" id="prof-email">-</p>
+                
+                <div class="profile-meta-grid">
+                  <div class="profile-meta-item">
+                    <span class="profile-meta-label">Team Lead</span>
+                    <span class="profile-meta-val" id="prof-tl">-</span>
+                  </div>
+                  <div class="profile-meta-item">
+                    <span class="profile-meta-label">Manager</span>
+                    <span class="profile-meta-val" id="prof-manager">-</span>
+                  </div>
+                  <div class="profile-meta-item">
+                    <span class="profile-meta-label">Campaign</span>
+                    <span class="profile-meta-val" id="prof-campaign">-</span>
+                  </div>
+                  <div class="profile-meta-item">
+                    <span class="profile-meta-label">Band / Status</span>
+                    <span class="profile-meta-val" id="prof-band">-</span>
+                  </div>
+                </div>
+
+                <div class="status-pill green" id="prof-risk-pill" style="width:100%; justify-content:center;">Safe</div>
+              </div>
+
+              <!-- Risk Predictor mini-gauge -->
+              <div class="profile-card" style="padding:16px;">
+                <h4 style="margin-bottom:10px; font-size:0.85rem; color:var(--text-secondary); text-align:left;">Target Prediction Indicator</h4>
+                <div class="prediction-summary-container" style="display:flex; flex-direction:column; gap:10px; align-items:center;">
+                  <div class="gauge-canvas-wrapper" style="width:140px; height:80px;">
+                    <canvas id="profile-risk-gauge"></canvas>
+                    <div class="gauge-text" style="bottom: 0;">
+                      <div class="gauge-val" id="profile-risk-val" style="font-size:1.4rem;">0</div>
+                      <div class="gauge-lbl" style="font-size:0.55rem;">Risk Score</div>
+                    </div>
+                  </div>
+                  <div style="font-size:0.75rem; text-align:center; color:var(--text-secondary);" id="profile-predictor-verdict">-</div>
+                </div>
+              </div>
+
+            </div>
+
+            <div class="profile-details-panel">
+              <!-- Stats Row -->
+              <div class="profile-stats-grid">
+                <div class="profile-stat-box">
+                  <div class="profile-stat-label">Target Progress</div>
+                  <div class="profile-stat-val" id="prof-stat-progress">-</div>
+                  <div class="profile-stat-sub" id="prof-stat-progress-sub">-</div>
+                </div>
+                
+                <div class="profile-stat-box">
+                  <div class="profile-stat-label">Conversion Performance</div>
+                  <div class="profile-stat-val" id="prof-stat-conversion">-</div>
+                  <div class="profile-stat-sub" id="prof-stat-conversion-sub">-</div>
+                </div>
+                
+                <div class="profile-stat-box">
+                  <div class="profile-stat-label">Attendance Record</div>
+                  <div class="profile-stat-val" id="prof-stat-attendance">-</div>
+                  <div class="profile-stat-sub" id="prof-stat-attendance-sub">-</div>
+                </div>
+              </div>
+
+              <!-- Diagnostic Cards and AI Summary -->
+              <div class="dashboard-row-grid">
+                
+                <!-- Radar skill and diagnostics -->
+                <div class="dashboard-panel">
+                  <div class="panel-header">
+                    <h3 class="panel-title">Competency Radar (Counsellor vs Team Avg)</h3>
+                  </div>
+                  <div class="panel-body">
+                    <div class="chart-container" style="height:220px;">
+                      <canvas id="profile-radar-chart"></canvas>
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- AI Narrative Box -->
+                <div class="profile-sidebar" style="gap:16px;">
+                  <div class="ai-summary-box">
+                    <h3 class="ai-summary-title">🤖 AI Performance Summary</h3>
+                    <p class="ai-summary-text" id="profile-ai-summary">Analyzing...</p>
+                  </div>
+                  
+                  <div class="dashboard-panel" style="padding:16px;">
+                    <h4 style="font-size:0.9rem; margin-bottom:8px;">Root Cause Diagnostics</h4>
+                    <div class="diagnostic-cards" id="profile-diagnostics-list">
+                      <!-- Dynamically populated -->
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+
+              <!-- Detailed performance grid charts -->
+              <div class="dashboard-panel">
+                <div class="panel-header">
+                  <h3 class="panel-title">Personal Calling & Conversion Trend</h3>
+                </div>
+                <div class="panel-body">
+                  <div class="chart-container" style="height:200px;">
+                    <canvas id="profile-trend-chart"></canvas>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </section>
+
+        <!-- 5. TEAM COMPARISON -->
+        <section class="dashboard-view" id="view-team-compare">
+          <div class="tabs-container">
+            <button class="tab-btn active" data-compare="lead">Compare Team Leads</button>
+            <button class="tab-btn" data-compare="manager">Compare Managers</button>
+            <button class="tab-btn" data-compare="campaign">Compare Campaigns</button>
+            <button class="tab-btn" data-compare="band">Compare Bands</button>
+          </div>
+
+          <div class="dashboard-row-grid" style="grid-template-columns: 1.5fr 1fr;">
+            <div class="dashboard-panel">
+              <div class="panel-header">
+                <h3 class="panel-title" id="compare-chart-title">Admissions & Conversion Rates Comparison</h3>
+              </div>
+              <div class="panel-body">
+                <div class="chart-container">
+                  <canvas id="compare-bar-chart"></canvas>
+                </div>
+              </div>
+            </div>
+
+            <div class="dashboard-panel">
+              <div class="panel-header">
+                <h3 class="panel-title">Comparative Statistics</h3>
+              </div>
+              <div class="panel-body">
+                <div class="table-responsive">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th id="compare-table-header">Category</th>
+                        <th>Admissions</th>
+                        <th>Avg Conv %</th>
+                        <th>Avg Risk</th>
+                      </tr>
+                    </thead>
+                    <tbody id="compare-table-body">
+                      <!-- Javascript builds rows -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 6. RISK PREDICTION ENGINE -->
+        <section class="dashboard-view" id="view-risk">
+          <div class="dashboard-row-grid" style="grid-template-columns: 1fr 1fr;">
+            
+            <div class="dashboard-panel">
+              <div class="panel-header">
+                <h3 class="panel-title">Risk Scoring Methodology</h3>
+              </div>
+              <div class="panel-body" style="font-size:0.85rem; line-height:1.5; color:var(--text-secondary);">
+                <p style="margin-bottom:12px;">The <strong>AI Risk Prediction Engine</strong> evaluates counsellors' probability of missing their month-end targets before the cycle closes.</p>
+                
+                <h4 style="color:var(--text-primary); margin: 12px 0 6px 0; font-size:0.9rem;">Evaluation Factors:</h4>
+                <ul style="margin-left: 20px; margin-bottom:16px;">
+                  <li><strong>Target achievement progress (35% weight):</strong> Pro-rata admissions gap versus month-end projection.</li>
+                  <li><strong>Effective Call Ratio (20% weight):</strong> Percent of connected calls extending past pitch threshold.</li>
+                  <li><strong>Productivity effort (15% weight):</strong> Average daily dial volumes.</li>
+                  <li><strong>Talk Time Engagement (15% weight):</strong> Focus and depth of conversations.</li>
+                  <li><strong>Attendance (15% weight):</strong> Consistent day-to-day dialer availability.</li>
+                </ul>
+
+                <div class="status-pill green">Green (Safe) &lt; 30</div>
+                <div class="status-pill yellow">Yellow (Warning) 30 - 60</div>
+                <div class="status-pill red">Red (High Risk) &gt; 60</div>
+              </div>
+            </div>
+
+            <div class="dashboard-panel">
+              <div class="panel-header">
+                <h3 class="panel-title">Month-End Target Achievement Predictor</h3>
+              </div>
+              <div class="panel-body">
+                <div class="table-responsive">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Counsellor</th>
+                        <th>Target</th>
+                        <th>Current</th>
+                        <th>Projected</th>
+                        <th>Gap</th>
+                        <th>Miss Prob %</th>
+                        <th>Risk Level</th>
+                      </tr>
+                    </thead>
+                    <tbody id="risk-predictions-table-body">
+                      <!-- Javascript builds rows -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- 7. LEAD QUALITY INTELLIGENCE -->
+        <section class="dashboard-view" id="view-lead-quality">
+          <div class="dashboard-row-grid">
+            
+            <!-- Lead breakdown -->
+            <div class="dashboard-panel">
+              <div class="panel-header">
+                <h3 class="panel-title">Lead Pipeline Quality Breakdown</h3>
+              </div>
+              <div class="panel-body">
+                <div style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:16px; line-height:1.4;">
+                  Leads are classified automatically based on user interaction columns in Excel:
+                  <ul style="margin-left:20px; margin-top:6px;">
+                    <li><strong>🔥 Hot Leads:</strong> Admissions EMI started & Full Payment On Spot. High closing potential.</li>
+                    <li><strong>⚡ Warm Leads:</strong> Admissions forms filled or exploratory interest flags.</li>
+                    <li><strong>❄️ Cold Leads:</strong> Explored only. Reached connected status but no progression.</li>
+                  </ul>
+                </div>
+                
+                <div class="table-responsive">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Counsellor</th>
+                        <th>Hot Leads</th>
+                        <th>Warm Leads</th>
+                        <th>Cold Leads</th>
+                        <th>Lead Quality Score</th>
+                        <th>Conversion</th>
+                        <th>Attribution Diagnosis</th>
+                      </tr>
+                    </thead>
+                    <tbody id="lead-quality-table-body">
+                      <!-- Javascript builds rows -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- Fair Conversion Scoring -->
+            <div class="dashboard-panel">
+              <div class="panel-header">
+                <h3 class="panel-title">Fair Performance Scoring (Expected vs Actual)</h3>
+              </div>
+              <div class="panel-body">
+                <div style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:16px; line-height:1.4;">
+                  Evaluating counsellors solely on overall conversion rates is unfair if leads are distributed unequally. This model calculates an **Expected Conversion Rate** adjusted for lead quality, then tags the counselor as Overperforming, Average, or Underperforming.
+                </div>
+                
+                <div class="table-responsive">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Counsellor</th>
+                        <th>LQS</th>
+                        <th>Expected Conv %</th>
+                        <th>Actual Conv %</th>
+                        <th>Variance</th>
+                        <th>Verdict</th>
+                      </tr>
+                    </thead>
+                    <tbody id="fair-scoring-table-body">
+                      <!-- Javascript builds rows -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- 8. FUNNEL & DROP-OFF ANALYSIS -->
+        <section class="dashboard-view" id="view-funnel">
+          <div class="dashboard-row-grid">
+            
+            <div class="dashboard-panel">
+              <div class="panel-header">
+                <h3 class="panel-title">Lead Progression Funnel Chart</h3>
+              </div>
+              <div class="panel-body">
+                <div class="funnel-container" id="funnel-chart-container">
+                  <!-- Dynamically drawn horizontal funnel bars -->
+                </div>
+              </div>
+            </div>
+
+            <div class="dashboard-panel">
+              <div class="panel-header">
+                <h3 class="panel-title">Funnel Optimization Diagnostics</h3>
+              </div>
+              <div class="panel-body" style="font-size:0.85rem; line-height:1.5;">
+                <div class="diagnostic-card critical" id="funnel-dropoff-alert-box" style="margin-bottom:16px;">
+                  <div class="diagnostic-indicator">⚠️</div>
+                  <div class="diagnostic-info">
+                    <div class="diagnostic-title" id="funnel-dropoff-stage-title">Major Bottleneck: -</div>
+                    <div class="diagnostic-desc" id="funnel-dropoff-stage-desc">-</div>
+                  </div>
+                </div>
+
+                <h4 style="margin-bottom:8px;">AI Funnel Optimization Recommendation:</h4>
+                <div class="ai-summary-box" style="margin-bottom:16px;">
+                  <p class="ai-summary-text" id="funnel-recommendation-text">-</p>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- 9. RECOMMENDATIONS ENGINE -->
+        <section class="dashboard-view" id="view-recommendations">
+          <div class="dashboard-panel">
+            <div class="panel-header">
+              <h3 class="panel-title">AI Recommendation Engine Actions</h3>
+            </div>
+            <div class="panel-body">
+              <div class="recommendation-list" id="recommendations-full-list">
+                <!-- Javascript builds cards -->
+              </div>
+            </div>
+          </div>
+        </section>
+        
+        <!-- EXPORTS FLOATING BAR -->
+        <div class="exports-bar">
+          <button class="export-btn excel-btn" id="export-excel-btn">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            Export to Excel
+          </button>
+          
+          <button class="export-btn" id="export-csv-btn">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            Export CSV
+          </button>
+          
+          <button class="export-btn pdf-btn" id="export-pdf-btn">
+            <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export PDF (Print)
+          </button>
+        </div>
+
+      </div>
+    </main>
+    
+  </div>
+
+  <!-- LOAD THE SCRIPTS IN LOGICAL SEQUENCE -->
+  <script src="mock-data.js"></script>
+  <script src="data-processor.js"></script>
+  <script src="analytics-engine.js"></script>
+  <script src="charts.js"></script>
+  <script src="exporter.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
