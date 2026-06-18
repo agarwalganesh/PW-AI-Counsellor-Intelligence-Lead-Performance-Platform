@@ -61,12 +61,19 @@ class DataProcessor {
     // Standardize mapping & enforce absolute state isolation
     const cleaned = data
       .map(row => this.cleanRow(row))
-      // FIX: Only require Counselor Email — rows without a Date are kept (date will be blank)
-      // This prevents rows from being silently dropped due to missing/different column names
+      // Only require Counselor Email — rows without a Date are kept
       .filter(row => row && row["Counselor Email"]);
     
     // Assign copy to global raw dataset
     this.rawDataset = JSON.parse(JSON.stringify(cleaned));
+
+    // ✅ FIX: Always reset date/time filters after new data upload
+    // Stale filters from previous sessions cause rows to be silently hidden
+    this.filters.startDate = "";
+    this.filters.endDate = "";
+    this.filters.month = "all";
+    this.filters.daysLimit = "all";
+    // NOTE: We keep teamLead/manager/campaign/band/status filters as-is (user intentional)
     
     this.updateMetadata();
     this.applyDashboardFilters();
@@ -206,12 +213,25 @@ class DataProcessor {
     result["VP Retention"] = parseInt(row["VP Retention"]) || 0;
     result["CC/FT/Board"] = parseInt(row["CC/FT/Board"]) || 0;
 
-    // Float Columns
-    const talktimeHoursRaw = row["Talktime (In hours)"];
+    // Float Columns — Talktime: try all known column name variants
+    const talktimeHoursRaw =
+      row["Talktime (In hours)"] ??
+      row["Talktime (in hours)"] ??
+      row["Talktime(hours)"] ??
+      row["Talktime (Hours)"] ??
+      row["talktime_hours"] ??
+      null;
+
     if (talktimeHoursRaw !== undefined && talktimeHoursRaw !== null && talktimeHoursRaw !== "") {
       result["Talktime (In hours)"] = parseFloat(talktimeHoursRaw) || 0.0;
     } else {
-      const talktimeSeconds = parseFloat(row["Talktime"]) || parseFloat(row["Talk Time"]) || parseFloat(row["talktime"]) || 0.0;
+      // Try seconds-based columns and convert to hours
+      const talktimeSeconds =
+        parseFloat(row["Talktime"]) ||
+        parseFloat(row["Talk Time"]) ||
+        parseFloat(row["Talk time"]) ||
+        parseFloat(row["talktime"]) ||
+        parseFloat(row["TalkTime"]) || 0.0;
       result["Talktime (In hours)"] = talktimeSeconds > 0 ? parseFloat((talktimeSeconds / 3600).toFixed(4)) : 0.0;
     }
 
@@ -351,8 +371,10 @@ class DataProcessor {
 
   // 3. ROBUST FILTER PIPELINE MECHANISM
   applyDashboardFilters() {
-    // Current operational anchor date (Assume Today = June 18, 2026)
-    const anchorDate = new Date("2026-06-18T00:00:00");
+    // ✅ FIX: Dynamic anchor date — always use TODAY, not a hardcoded date
+    // Hardcoded date caused "Last 7 Days" / "Last 30 Days" filter to show 0 rows for non-June data
+    const today = new Date();
+    const anchorDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const scope = (typeof globalThis !== "undefined") ? globalThis : ((typeof window !== "undefined") ? window : global);
 
     // Filter masterData into a fresh filteredData array (no mutation of raw data)
