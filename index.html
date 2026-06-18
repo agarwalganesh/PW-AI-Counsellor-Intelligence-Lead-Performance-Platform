@@ -3,9 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Counsellor Intelligence & Lead Performance Platform</title>
+  <title>Enterprise AI Counsellor & Performance Portal (Master Portal)</title>
+  <meta name="description" content="AI Counsellor Intelligence & Lead Performance Portal for predictive sales evaluation, behavioral lead score prioritizing, target projections, and automated root cause coaching diagnostics.">
   <!-- Tailwind CSS is avoided per guidelines; vanilla styling is loaded -->
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=3">
   
   <!-- SheetJS (XLSX) for client-side Excel upload processing -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -179,6 +180,15 @@
         <!-- 1. EXECUTIVE DASHBOARD -->
         <section class="dashboard-view active" id="view-executive">
           
+          <!-- SYSTEMIC TREND WARNING BANNER -->
+          <div class="alert-banner critical" id="systemic-trend-alert" style="display:none; margin-bottom: 20px; padding: 12px 16px; border-radius: 8px; border: 1px solid var(--accent-critical); background: rgba(230, 77, 102, 0.15); align-items: center; gap: 12px;">
+            <div class="alert-icon" style="font-size: 1.5rem;">🛑</div>
+            <div class="alert-content" style="flex: 1;">
+              <div class="alert-title" style="font-weight: 700; color: var(--accent-critical); font-size: 0.95rem;">High-Risk Systemic Trend Detected</div>
+              <div class="alert-desc" id="systemic-trend-desc" style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 4px;">Macro conversion rate has dropped by over 5% compared to the prior period.</div>
+            </div>
+          </div>
+          
           <!-- AI Insights Feed Header -->
           <div class="insights-ticker">
             <div class="insights-tag">AI Insights</div>
@@ -231,7 +241,25 @@
                 </div>
               </div>
               <div class="kpi-value" id="kpi-high-risk">-</div>
-              <div class="kpi-trend down" id="kpi-high-risk-status">Target miss probability >60%</div>
+              <div class="kpi-trend down" id="kpi-high-risk-status">FPI < 0.85 or miss > 40%</div>
+            </div>
+
+            <div class="kpi-card secondary" style="background: linear-gradient(135deg, hsla(223, 47%, 11%, 0.7), hsla(217, 30%, 15%, 0.7)); border-color: var(--accent-info);">
+              <div class="kpi-header">
+                <span class="kpi-title">Gross Margins</span>
+                <div class="kpi-icon-wrapper">💰</div>
+              </div>
+              <div class="kpi-value" id="kpi-gross-margin">-</div>
+              <div class="kpi-trend up" id="kpi-gross-margin-pct">-</div>
+            </div>
+
+            <div class="kpi-card info" style="background: linear-gradient(135deg, hsla(223, 47%, 11%, 0.7), hsla(217, 30%, 15%, 0.7)); border-color: var(--accent-warning);">
+              <div class="kpi-header">
+                <span class="kpi-title">Operational Burn</span>
+                <div class="kpi-icon-wrapper">🔥</div>
+              </div>
+              <div class="kpi-value" id="kpi-operational-burn">-</div>
+              <div class="kpi-trend neutral" id="kpi-operational-burn-sub">Salaries & Call Costs</div>
             </div>
           </div>
 
@@ -302,9 +330,14 @@
           <div class="dashboard-panel">
             <div class="panel-header">
               <h3 class="panel-title">Counsellor Performance Metrics</h3>
-              <div class="panel-actions">
-                <input type="text" id="search-counsellor" placeholder="Search by name/email..." class="filter-select" style="width:200px;">
-                <select id="filter-performance-band" class="filter-select">
+              <div class="panel-actions" style="display:flex; align-items:center; gap:12px;">
+                <span style="font-size:0.75rem; color:var(--text-secondary);">Shift-click columns to sort multiple</span>
+                <input type="text" id="search-counsellor" placeholder="Search by name/email..." class="filter-select" style="width:180px; margin:0;">
+                <label style="display:flex; align-items:center; gap:4px; font-size:0.75rem; cursor:pointer; color:var(--text-secondary); margin:0;">
+                  <input type="checkbox" id="regex-search-mode">
+                  Regex
+                </label>
+                <select id="filter-performance-band" class="filter-select" style="width:120px; margin:0;">
                   <option value="all">All Bands</option>
                   <option value="Band A">Band A</option>
                   <option value="Band B">Band B</option>
@@ -318,19 +351,19 @@
                 <table class="data-table" id="metrics-table">
                   <thead>
                     <tr>
-                      <th>Counsellor</th>
-                      <th>TL / Manager</th>
-                      <th>Campaign</th>
-                      <th>Attendance</th>
-                      <th>Target</th>
-                      <th>Admissions</th>
-                      <th>Conversion %</th>
-                      <th>Dials</th>
-                      <th>Connects</th>
-                      <th>Effective</th>
-                      <th>Avg Talktime</th>
-                      <th>Fair Score</th>
-                      <th>Risk</th>
+                      <th class="sortable-header" data-sort="name" style="cursor:pointer; user-select:none;">Counsellor <span class="sort-icon"></span></th>
+                      <th class="sortable-header" data-sort="teamLead" style="cursor:pointer; user-select:none;">TL / Manager <span class="sort-icon"></span></th>
+                      <th class="sortable-header" data-sort="campaign" style="cursor:pointer; user-select:none;">Campaign <span class="sort-icon"></span></th>
+                      <th class="sortable-header" data-sort="attendance" style="cursor:pointer; user-select:none;">Attendance <span class="sort-icon"></span></th>
+                      <th class="sortable-header" data-sort="target" style="cursor:pointer; user-select:none;">Target <span class="sort-icon"></span></th>
+                      <th class="sortable-header" data-sort="totalAdmissions" style="cursor:pointer; user-select:none;">Admissions <span class="sort-icon"></span></th>
+                      <th class="sortable-header" data-sort="conversionPercentage" style="cursor:pointer; user-select:none;">Conversion % <span class="sort-icon"></span></th>
+                      <th class="sortable-header" data-sort="totalDials" style="cursor:pointer; user-select:none;">Dials <span class="sort-icon"></span></th>
+                      <th class="sortable-header" data-sort="totalConnected" style="cursor:pointer; user-select:none;">Connects <span class="sort-icon"></span></th>
+                      <th class="sortable-header" data-sort="totalEffective" style="cursor:pointer; user-select:none;">Effective <span class="sort-icon"></span></th>
+                      <th class="sortable-header" data-sort="totalTalktime" style="cursor:pointer; user-select:none;">Avg Talktime <span class="sort-icon"></span></th>
+                      <th class="sortable-header" data-sort="fairScore" style="cursor:pointer; user-select:none;">Fair Score <span class="sort-icon"></span></th>
+                      <th class="sortable-header" data-sort="riskScore" style="cursor:pointer; user-select:none;">Risk <span class="sort-icon"></span></th>
                     </tr>
                   </thead>
                   <tbody id="metrics-table-body">
@@ -573,9 +606,9 @@
                   <li><strong>Attendance (15% weight):</strong> Consistent day-to-day dialer availability.</li>
                 </ul>
 
-                <div class="status-pill green">Green (Safe) &lt; 30</div>
-                <div class="status-pill yellow">Yellow (Warning) 30 - 60</div>
-                <div class="status-pill red">Red (High Risk) &gt; 60</div>
+                <div class="status-pill green" style="margin-bottom: 6px;">Green Zone (Safe): FPI &ge; 1.00 and P<sub>miss</sub> &lt; 15%</div>
+                <div class="status-pill yellow" style="margin-bottom: 6px;">Yellow Zone (Warning): 0.85 &le; FPI &lt; 1.00 or 15% &le; P<sub>miss</sub> &le; 40%</div>
+                <div class="status-pill red">Red Zone (Critical): FPI &lt; 0.85 or P<sub>miss</sub> &gt; 40%</div>
               </div>
             </div>
 
@@ -678,6 +711,36 @@
               </div>
             </div>
 
+            <!-- Structural Lead Disparities & Overload Warning Monitor (Module 6) -->
+            <div class="dashboard-panel" style="grid-column: span 2; margin-top: 10px;">
+              <div class="panel-header">
+                <h3 class="panel-title">Structural Lead Disparity & Routing Monitor</h3>
+              </div>
+              <div class="panel-body">
+                <div style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:12px; line-height:1.4;">
+                  This table monitors structural distribution biases by comparing aggregated Lead Quality Scores (LQS) assigned across Team Leads. Teams with an average LQS more than **10% below organizational average** are flagged as **Overloaded** to prevent evaluation bias.
+                </div>
+                
+                <div class="table-responsive">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Team Lead</th>
+                        <th>Total Leads Distributed</th>
+                        <th>Average Lead Quality Score (LQS)</th>
+                        <th>Lead Tier Distribution (Hot / Warm / Cold)</th>
+                        <th>Disparity Deviation</th>
+                        <th>Routing Alert Status</th>
+                      </tr>
+                    </thead>
+                    <tbody id="lead-disparity-table-body">
+                      <!-- Javascript builds rows -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
           </div>
         </section>
 
@@ -753,15 +816,150 @@
 
       </div>
     </main>
+  </div>
     
+  <!-- MULTI-SHEET SELECTOR MODAL -->
+  <div class="modal-overlay" id="multi-sheet-modal" style="display: none;">
+    <div class="modal-content animate-fade-in">
+      <div class="modal-header">
+        <h3 class="modal-title">
+          <svg viewBox="0 0 24 24" width="20" height="20" stroke="var(--accent-info)" stroke-width="2" fill="none" style="vertical-align: middle; margin-right: 8px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Multiple Sheets Detected
+        </h3>
+        <button class="modal-close-btn" id="close-sheet-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-instruction">Choose which sheet(s) you would like to analyze from this workbook:</p>
+        
+        <div class="sheet-options-container" id="sheet-checkboxes-container">
+          <!-- Dynamically populated checkboxes -->
+        </div>
+        
+        <div class="modal-actions-bar">
+          <button class="panel-btn" id="btn-select-all-sheets">Select All</button>
+          <button class="panel-btn" id="btn-deselect-all-sheets">Deselect All</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="export-btn" id="btn-cancel-load">Cancel</button>
+        <button class="upload-btn-label" id="btn-confirm-load-sheets" style="width: auto; margin-top: 0; padding: 10px 20px;">Load Data</button>
+      </div>
+    </div>
   </div>
 
   <!-- LOAD THE SCRIPTS IN LOGICAL SEQUENCE -->
-  <script src="mock-data.js?v=2"></script>
-  <script src="data-processor.js?v=2"></script>
-  <script src="analytics-engine.js?v=2"></script>
-  <script src="charts.js?v=2"></script>
-  <script src="exporter.js?v=2"></script>
-  <script src="app.js?v=2"></script>
+  <script src="mock-data.js?v=3"></script>
+  <script src="data-processor.js?v=3"></script>
+  <script src="analytics-engine.js?v=3"></script>
+  <script src="charts.js?v=3"></script>
+  <script src="exporter.js?v=3"></script>
+  <script src="app.js?v=3"></script>
+
+  <!-- 360-DEGREE COUNSELLOR PROFILE DRAWER (Module 5) -->
+  <div class="profile-drawer" id="profile-drawer">
+    <div class="drawer-header" style="display:flex; align-items:center; justify-content:space-between; padding:16px; border-bottom:1px solid var(--border-color); background:rgba(255, 255, 255, 0.02);">
+      <div class="drawer-user-info" style="display:flex; align-items:center; gap:12px;">
+        <div class="drawer-avatar" id="drawer-avatar" style="width:40px; height:40px; border-radius:50%; background:var(--accent-info); color:white; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:1.2rem;">?</div>
+        <div>
+          <h2 class="drawer-name" id="drawer-name" style="font-size:1.1rem; font-weight:700; color:var(--text-primary); margin:0;">-</h2>
+          <p class="drawer-email" id="drawer-email" style="font-size:0.75rem; color:var(--text-secondary); margin:2px 0 0 0;">-</p>
+        </div>
+      </div>
+      <button class="drawer-close-btn" id="drawer-close-btn" style="background:transparent; border:none; color:var(--text-secondary); font-size:1.8rem; cursor:pointer; width:30px; height:30px; display:flex; align-items:center; justify-content:center; border-radius:4px; transition:all 0.2s;">&times;</button>
+    </div>
+    
+    <div class="drawer-body" style="padding:16px; overflow-y:auto; height:calc(100% - 73px); display:flex; flex-direction:column; gap:16px;">
+      <!-- Details & Status Pill -->
+      <div class="drawer-section details-pill-row" style="display:flex; gap:8px;">
+        <span class="status-pill" id="drawer-risk-pill">-</span>
+        <span class="status-pill info" id="drawer-band-pill">-</span>
+      </div>
+
+      <!-- Quick Metrics Row -->
+      <div class="drawer-stats-grid" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
+        <div class="drawer-stat-box" style="background:var(--bg-card); border:1px solid var(--border-color); padding:10px; border-radius:8px; text-align:center;">
+          <div class="drawer-stat-label" style="font-size:0.65rem; color:var(--text-secondary); text-transform:uppercase;">Target Progress</div>
+          <div class="drawer-stat-value" id="drawer-stat-progress" style="font-size:1.1rem; font-weight:700; color:var(--text-primary); margin-top:4px;">-</div>
+          <div class="drawer-stat-sub" id="drawer-stat-progress-sub" style="font-size:0.6rem; color:var(--accent-info); margin-top:2px;">-</div>
+        </div>
+        <div class="drawer-stat-box" style="background:var(--bg-card); border:1px solid var(--border-color); padding:10px; border-radius:8px; text-align:center;">
+          <div class="drawer-stat-label" style="font-size:0.65rem; color:var(--text-secondary); text-transform:uppercase;">Conversion</div>
+          <div class="drawer-stat-value" id="drawer-stat-conversion" style="font-size:1.1rem; font-weight:700; color:var(--text-primary); margin-top:4px;">-</div>
+          <div class="drawer-stat-sub" id="drawer-stat-conversion-sub" style="font-size:0.6rem; color:var(--text-muted); margin-top:2px;">-</div>
+        </div>
+        <div class="drawer-stat-box" style="background:var(--bg-card); border:1px solid var(--border-color); padding:10px; border-radius:8px; text-align:center;">
+          <div class="drawer-stat-label" style="font-size:0.65rem; color:var(--text-secondary); text-transform:uppercase;">Attendance</div>
+          <div class="drawer-stat-value" id="drawer-stat-attendance" style="font-size:1.1rem; font-weight:700; color:var(--text-primary); margin-top:4px;">-</div>
+          <div class="drawer-stat-sub" id="drawer-stat-attendance-sub" style="font-size:0.6rem; color:var(--text-muted); margin-top:2px;">-</div>
+        </div>
+      </div>
+
+      <!-- AI Summary Narrative Box -->
+      <div class="drawer-section">
+        <div class="ai-summary-box" style="margin:0;">
+          <h4 class="ai-summary-title" style="margin:0 0 6px 0;">🤖 AI Performance Summary</h4>
+          <p class="ai-summary-text" id="drawer-ai-summary" style="margin:0; line-height:1.4;">Analyzing...</p>
+        </div>
+      </div>
+
+      <!-- Navigation tabs inside drawer -->
+      <div class="drawer-tabs" style="display:flex; border-bottom:1px solid var(--border-color);">
+        <button class="drawer-tab-btn active" data-drawer-tab="tab-overview" style="flex:1; padding:8px 0; background:transparent; border:none; color:var(--text-secondary); font-size:0.8rem; font-weight:600; cursor:pointer; border-bottom:2px solid transparent;">Radar & Predictor</button>
+        <button class="drawer-tab-btn" data-drawer-tab="tab-diagnostics" style="flex:1; padding:8px 0; background:transparent; border:none; color:var(--text-secondary); font-size:0.8rem; font-weight:600; cursor:pointer; border-bottom:2px solid transparent;">RCA & Hour-by-Hour</button>
+      </div>
+
+      <!-- Tab: Overview -->
+      <div class="drawer-tab-content active" id="tab-overview" style="display:flex; flex-direction:column; gap:16px;">
+        <!-- Target Predictor Mini Gauge -->
+        <div class="drawer-card" style="background:var(--bg-card); border:1px solid var(--border-color); padding:12px; border-radius:8px;">
+          <h4 class="card-title" style="margin:0 0 10px 0; font-size:0.8rem; color:var(--text-secondary);">Target Prediction Indicator</h4>
+          <div class="prediction-summary-container" style="display:flex; flex-direction:column; align-items:center;">
+            <div class="gauge-canvas-wrapper" style="width:130px; height:70px; position:relative;">
+              <canvas id="drawer-risk-gauge"></canvas>
+              <div class="gauge-text" style="position:absolute; bottom:0; left:50%; transform:translateX(-50%); text-align:center; display:flex; flex-direction:column; align-items:center; width:100%;">
+                <div class="gauge-val" id="drawer-risk-val" style="font-size:1.2rem; font-weight:800; color:var(--text-primary); line-height:1.1;">0</div>
+                <div class="gauge-lbl" style="font-size:0.5rem; color:var(--text-secondary); text-transform:uppercase;">Risk Score</div>
+              </div>
+            </div>
+            <div id="drawer-predictor-verdict" style="font-size:0.75rem; text-align:center; margin-top:8px; color:var(--text-secondary);">-</div>
+          </div>
+        </div>
+
+        <!-- Competency Radar -->
+        <div class="drawer-card" style="background:var(--bg-card); border:1px solid var(--border-color); padding:12px; border-radius:8px;">
+          <h4 class="card-title" style="margin:0 0 10px 0; font-size:0.8rem; color:var(--text-secondary);">Competency Radar (vs Team Avg)</h4>
+          <div class="chart-container" style="height:180px; position:relative;">
+            <canvas id="drawer-radar-chart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Diagnostics -->
+      <div class="drawer-tab-content" id="tab-diagnostics" style="display:none; flex-direction:column; gap:16px;">
+        <!-- Root Cause Diagnostics list -->
+        <div class="drawer-card" style="background:var(--bg-card); border:1px solid var(--border-color); padding:12px; border-radius:8px;">
+          <h4 class="card-title" style="margin:0 0 10px 0; font-size:0.8rem; color:var(--text-secondary);">Root Cause Diagnostics</h4>
+          <div id="drawer-diagnostics-list">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- Calling Trend & Hour-by-Hour visual toggle -->
+        <div class="drawer-card" style="background:var(--bg-card); border:1px solid var(--border-color); padding:12px; border-radius:8px;">
+          <div class="card-header-with-actions" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+            <h4 class="card-title" style="margin:0; font-size:0.8rem; color:var(--text-secondary);">Productivity Calling Trend</h4>
+            <div class="segmented-control" style="display:inline-flex; background:rgba(255,255,255,0.05); padding:2px; border-radius:6px; border:1px solid var(--border-color);">
+              <button class="segmented-btn active" id="drawer-view-daily-btn" style="padding:4px 8px; border:none; background:transparent; font-size:0.65rem; font-weight:600; cursor:pointer; color:var(--text-secondary); border-radius:4px;">Daily</button>
+              <button class="segmented-btn" id="drawer-view-hourly-btn" style="padding:4px 8px; border:none; background:transparent; font-size:0.65rem; font-weight:600; cursor:pointer; color:var(--text-muted); border-radius:4px;">Hourly (Peak)</button>
+            </div>
+          </div>
+          <div class="chart-container" style="height:170px; position:relative;">
+            <canvas id="drawer-trend-chart"></canvas>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
 </body>
 </html>

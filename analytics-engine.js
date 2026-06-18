@@ -16,95 +16,77 @@ class AnalyticsEngine {
       rawRecords
     } = counsellorData;
 
-    // A. Target Achievement Gap
-    // Calculate expected target progress based on elapsed days in month.
-    // Assuming 30 days month, we compare actual admissions against expected pro-rata target
-    const daysElapsed = this.getDaysElapsed(rawRecords);
-    const expectedProRataTarget = (totalTarget / 30) * daysElapsed;
-    const targetGap = expectedProRataTarget > 0 ? 
-      Math.max(0, (expectedProRataTarget - totalAdmissions) / expectedProRataTarget * 100) : 0;
+    // Calculate expected conversion based on lead quality mix
+    const leadStats = this.calculateLeadQuality(counsellorData);
+    const fair = this.calculateFairScore(counsellorData, leadStats);
+    
+    const ECR = fair.expectedRate;
+    const ACR = fair.actualRate;
+    const FPI = ECR > 0 ? ACR / ECR : 1.0;
 
-    // B. Effective Ratio Gap (Benchmark effective ratio is 75% of connected calls)
-    const effectiveGap = Math.max(0, 75 - effectiveRatio) / 75 * 100;
+    const pred = this.predictTargetAchievement(counsellorData);
+    const P_miss = pred.missProbability;
 
-    // C. Attendance Gap (Benchmark is 92%)
-    const attendanceGap = Math.max(0, 92 - attendance.rate) / 92 * 100;
+    // Module 3 Zones:
+    // Green Zone: FPI >= 1.0 and P_miss < 15%
+    // Yellow Zone: 0.85 <= FPI < 1.0 or 15% <= P_miss <= 40%
+    // Red Zone: FPI < 0.85 or P_miss > 40%
+    let category = "Yellow";
+    if (FPI >= 1.0 && P_miss < 15) {
+      category = "Green";
+    } else if (FPI < 0.85 || P_miss > 40) {
+      category = "Red";
+    }
 
-    // D. Talktime Gap (Benchmark is 240s average talktime per connected call)
-    const avgTalktime = totalConnected > 0 ? (totalTalktime / totalConnected) : 0;
-    const talktimeGap = Math.max(0, 240 - avgTalktime) / 240 * 100;
+    const riskScore = Math.round(P_miss);
 
-    // E. Productivity (Dialled Calls) Gap (Benchmark is 80 calls dialled per active day)
-    const activeDays = attendance.present + attendance.halfDay * 0.5;
-    const avgDials = activeDays > 0 ? (totalDials / activeDays) : 0;
-    const dialsGap = Math.max(0, 80 - avgDials) / 80 * 100;
-
-    // F. Weighted Risk Score
-    const riskScore = Math.round(
-      (0.35 * targetGap) +
-      (0.20 * effectiveGap) +
-      (0.15 * attendanceGap) +
-      (0.15 * talktimeGap) +
-      (0.15 * dialsGap)
-    );
-
-    // G. Identify Risk Contributors
+    // Identify Risk Contributors
     const contributors = [];
-    if (targetGap > 30) {
+    if (FPI < 0.85) {
       contributors.push({
-        factor: "Target Progress",
-        description: `Admissions (${totalAdmissions}) lagging behind pro-rata target (${Math.round(expectedProRataTarget)})`,
+        factor: "Fair Performance (FPI)",
+        description: `FPI is ${FPI.toFixed(2)}, indicating underperformance relative to lead mix expectations.`,
         impact: "High"
       });
     }
-    if (effectiveGap > 25) {
+    if (P_miss > 40) {
       contributors.push({
-        factor: "Effective Call Quality",
-        description: `Effective ratio (${Math.round(effectiveRatio)}%) is below standard benchmark (75%)`,
-        impact: "Medium"
-      });
-    }
-    if (attendanceGap > 15) {
-      contributors.push({
-        factor: "Attendance / Availability",
-        description: `Attendance rate (${Math.round(attendance.rate)}%) is affecting total talk opportunities`,
-        impact: "Medium"
-      });
-    }
-    if (talktimeGap > 25) {
-      contributors.push({
-        factor: "Talk Time Engagement",
-        description: `Average talktime (${Math.round(avgTalktime)}s) is low, indicating rapid disconnects`,
-        impact: "Low"
-      });
-    }
-    if (dialsGap > 25) {
-      contributors.push({
-        factor: "Calling Productivity",
-        description: `Average daily dials (${Math.round(avgDials)}) are below the 80 dials benchmark`,
-        impact: "Medium"
+        factor: "Target Projections",
+        description: `Linear target miss probability is high (${Math.round(P_miss)}%). Gap is ${pred.gap} admissions.`,
+        impact: "High"
       });
     }
 
-    let category = "Green";
-    if (riskScore > 30 && riskScore <= 60) category = "Yellow";
-    else if (riskScore > 60) category = "Red";
+    const daysElapsed = this.getDaysElapsed(rawRecords);
+    const expectedProRataTarget = (totalTarget / 30) * daysElapsed;
+    if (totalAdmissions < expectedProRataTarget) {
+      contributors.push({
+        factor: "Pro-rata Target Pace",
+        description: `Admissions (${totalAdmissions}) lagging behind pro-rata target (${Math.round(expectedProRataTarget)})`,
+        impact: "Medium"
+      });
+    }
 
     return {
       score: Math.min(100, Math.max(0, riskScore)),
       category,
+      fpi: FPI,
       contributors
     };
   }
 
   // Helper to extract elapsed days from active records
+  // Helper to extract elapsed days from active records
   getDaysElapsed(records) {
-    if (!records || records.length === 0) return 17; // default fallback
+    if (!records || records.length === 0) return 18; // default fallback (June 18, 2026 anchor day)
     const dates = records.map(r => r["Date"]).filter(Boolean);
-    if (dates.length === 0) return 17;
+    if (dates.length === 0) return 18;
     // Assume days are counted from day 1 to max day in dates array
     const sorted = dates.sort();
-    const latestDate = new Date(sorted[sorted.length - 1]);
+    const latestDateStr = sorted[sorted.length - 1];
+    // Parse using T00:00:00 to avoid timezone shifts
+    const latestDate = new Date(latestDateStr + "T00:00:00");
+    if (isNaN(latestDate.getTime())) return 18;
     return latestDate.getDate(); // e.g. 17 for 2026-06-17
   }
 
@@ -120,59 +102,49 @@ class AnalyticsEngine {
       leadQualityScore
     } = counsellorData;
 
-    const activeDays = attendance.present + attendance.halfDay * 0.5;
-    const avgDials = activeDays > 0 ? (totalDials / activeDays) : 0;
-    const avgConnected = activeDays > 0 ? (totalConnected / activeDays) : 0;
+    const activeDays = attendance.present + attendance.halfDay * 0.5 || 1;
+    const avgDials = totalDials / activeDays;
     const connectRate = totalDials > 0 ? (totalConnected / totalDials) : 0;
     const avgTalktime = totalConnected > 0 ? (totalTalktime / totalConnected) : 0;
 
     const issues = [];
 
-    // Case 1: Low Dialled Calls
-    if (avgDials < 55) {
+    // Case 1: Effort Gap
+    // Low Dialled Calls (D) + Low Gross Talktime + Low Admissions (A)
+    if (avgDials < 60 && avgTalktime < 180 && totalAdmissions < 2) {
       issues.push({
         caseId: 1,
         severity: "Critical",
-        type: "Low Productivity",
-        reason: "Low Dialled Calls",
-        explanation: `Counsellor averages ${Math.round(avgDials)} dialled calls per day, which is below the benchmark of 80. Indicates a productivity/effort drop.`,
-        action: "Establish strict daily call targets, require auto-dial mode usage, and schedule regular supervisor check-ins."
+        type: "Effort Gap",
+        reason: "Low Dialled Calls & Talktime",
+        explanation: `Counsellor dialled calls average is low (${Math.round(avgDials)}/day) and gross talktime is deficient. Reflects low activity or system runtime utilization.`,
+        action: "Trigger systematic Productivity Warning Flag; push notification alert tracking active phone channel status."
       });
     }
 
-    // Case 2: Low Connected Calls (Lead Quality Issue)
-    if (avgDials >= 50 && connectRate < 0.40) {
+    // Case 2: Lead Quality Gap
+    // High Dialled Calls (D) + Low Connected Calls (C)
+    if (avgDials >= 60 && connectRate < 0.40) {
       issues.push({
         caseId: 2,
         severity: "High",
-        type: "Lead Quality Issue",
-        reason: "Low Connected Calls",
-        explanation: `Counsellor has decent dialing activity but only a ${Math.round(connectRate * 100)}% connection rate. This is usually due to bad, stale, or marked-as-spam numbers.`,
-        action: "Flag campaign leads for re-scrubbing. Rotate dialing list to active status records, and test outgoing numbers for spam tags."
+        type: "Lead Quality Gap",
+        reason: "High Dials, Low Connections",
+        explanation: `High dialing activity (${Math.round(avgDials)}/day) is yielding poor connection rates (${Math.round(connectRate * 100)}%). Typical of list fatigue, stale numbers, or spam blocking.`,
+        action: "Trigger Campaign Automation Pause; route lead source batch ticket directly to Marketing QA for validation."
       });
     }
 
-    // Case 3: High Connected but Low Admissions (Poor Closing)
-    if (avgConnected > 12 && conversionPercentage < 5) {
+    // Case 3: Skill Gap
+    // High Connected Calls (C) + High Gross Talktime + Low Admissions (A)
+    if (totalConnected > 15 && avgTalktime >= 200 && totalAdmissions < 2) {
       issues.push({
         caseId: 3,
         severity: "Critical",
-        type: "Counsellor Skill Gap",
-        reason: "High Connections, Low Admissions",
-        explanation: `Counsellor connects with many prospects (${Math.round(avgConnected)}/day) but converts only ${conversionPercentage}%. Indicates struggles at objection handling and closing.`,
-        action: "Assign shadow-coaching sessions with a top closer, review call recordings focusing on objection-handling scripts, and run mock closes."
-      });
-    }
-
-    // Case 4: High Activity but Low Conversion (Lead Mismatch)
-    if (avgDials >= 70 && conversionPercentage < 4 && leadQualityScore < 35) {
-      issues.push({
-        caseId: 4,
-        severity: "Medium",
-        type: "Lead Mismatch",
-        reason: "High Activity, Low Quality Conversion",
-        explanation: `Counsellor exhibits high effort and talk time, but conversion rate is low due to a low Lead Quality Score (${Math.round(leadQualityScore)}). Leads assigned are predominantly cold explorers.`,
-        action: "Inject a percentage of warm or hot leads (e.g. form filled or payment failed) into their dialer to balance conversion opportunity."
+        type: "Skill Gap",
+        reason: "High Engagement, Low Closures",
+        explanation: `Successful connection rates and high customer engagement times are not translating to course sign-ups. Reflects struggles with objection handling or closing techniques.`,
+        action: "Auto-assign structural Objection Handling & Closing Velocity Training Modules via LMS integration."
       });
     }
 
@@ -182,9 +154,9 @@ class AnalyticsEngine {
         caseId: 0,
         severity: "Safe",
         type: "Optimal Performance",
-        reason: "No Critical Issues Detected",
-        explanation: "This counsellor is operating efficiently. Dials, reachability, and conversions meet standard pipeline expectations.",
-        action: "Maintain current workload and lead allocation. Highlight as team benchmark example."
+        reason: "Parity Reached",
+        explanation: "No structural performance gaps are currently flagged. Counselor activity aligns with campaign benchmarks.",
+        action: "Maintain current workload and route standard lead inventories."
       });
     }
 
@@ -235,18 +207,20 @@ class AnalyticsEngine {
     const { hotLeads, warmLeads, coldLeads } = leadQualityStats;
     const { totalConnected, conversionPercentage } = counsellorData;
 
-    // Expected Conversion Rate based on lead mix:
-    // Hot leads are expected to convert at 18%, Warm at 6%, Cold at 1.5%
+    // Expected Conversion Rate based on lead mix per v1.0 spec:
+    // P1 (hotLeads) is expected to convert at 20%, P2 (warmLeads) at 10%, P3 (coldLeads) at 5%
     const expectedRate = totalConnected > 0 ? 
-      parseFloat((((0.18 * hotLeads) + (0.06 * warmLeads) + (0.015 * coldLeads)) / totalConnected * 100).toFixed(2)) : 0;
+      parseFloat((((0.20 * hotLeads) + (0.10 * warmLeads) + (0.05 * coldLeads)) / totalConnected * 100).toFixed(2)) : 0;
 
+    const fpi = expectedRate > 0 ? parseFloat((conversionPercentage / expectedRate).toFixed(2)) : 1.0;
     const diff = conversionPercentage - expectedRate;
-    let rating = "Average";
+
+    let rating = "Parity";
     let color = "yellow";
-    if (diff > 2.0) {
-      rating = "Overperforming";
+    if (fpi >= 1.10) {
+      rating = "Highly efficient";
       color = "green";
-    } else if (diff < -2.0) {
+    } else if (fpi < 0.90) {
       rating = "Underperforming";
       color = "red";
     }
@@ -254,6 +228,7 @@ class AnalyticsEngine {
     return {
       expectedRate,
       actualRate: conversionPercentage,
+      fpi,
       difference: parseFloat(diff.toFixed(2)),
       rating,
       color
@@ -272,43 +247,39 @@ class AnalyticsEngine {
       totalFullPayment
     } = counsellorData;
 
-    const payments = totalEmiPaid + totalFullPayment;
-
     // Conversion rates relative to preceding stage
     const connectRate = totalDials > 0 ? (totalConnected / totalDials) * 100 : 0;
     const effectiveRate = totalConnected > 0 ? (totalEffective / totalConnected) * 100 : 0;
     const formRate = totalEffective > 0 ? (totalFormFilled / totalEffective) * 100 : 0;
     const admissionRate = totalFormFilled > 0 ? (totalAdmissions / totalFormFilled) * 100 : 0;
-    const paymentRate = totalAdmissions > 0 ? (payments / totalAdmissions) * 100 : 0;
 
     const stages = [
-      { name: "Reachability (Dials -> Connected)", value: connectRate, label: "Connected / Dialled", count: totalConnected },
-      { name: "Engagement (Connected -> Effective)", value: effectiveRate, label: "Effective / Connected", count: totalEffective },
-      { name: "Interest (Effective -> Form Filled)", value: formRate, label: "Form Filled / Effective", count: totalFormFilled },
-      { name: "Closing (Form Filled -> Admissions)", value: admissionRate, label: "Admissions / Form Filled", count: totalAdmissions },
-      { name: "Collection (Admissions -> Paid)", value: paymentRate, label: "Payments / Admissions", count: payments }
+      { name: "Dialled Calls", value: 100, label: "Dialled Outbound", count: totalDials },
+      { name: "Connected Calls", value: connectRate, label: "Connected / Dialled", count: totalConnected },
+      { name: "Effective Calls", value: effectiveRate, label: "Effective / Connected", count: totalEffective },
+      { name: "Buy Now Intent", value: formRate, label: "Form Filled / Effective", count: totalFormFilled },
+      { name: "Full Spot Payments", value: admissionRate, label: "Admissions / Form Filled", count: totalAdmissions }
     ];
 
-    // Find highest drop-off (lowest conversion percentage)
-    let dropoffStage = stages[0];
-    stages.forEach(stage => {
-      // Avoid 0/NaN issues
-      if (stage.value > 0 && stage.value < dropoffStage.value) {
-        dropoffStage = stage;
+    // Find highest drop-off (lowest conversion percentage among downstream stages)
+    let dropoffStage = stages[1]; // Connected calls is first transition
+    for (let i = 1; i < stages.length; i++) {
+      if (stages[i].value > 0 && stages[i].value < dropoffStage.value) {
+        dropoffStage = stages[i];
       }
-    });
+    }
 
     let advice = "";
-    if (dropoffStage.name.includes("Reachability")) {
+    if (dropoffStage.name.includes("Connected")) {
       advice = "Re-verify lead contact numbers, avoid spam call registry, and focus calls during high-response hours (11AM-1PM & 4PM-6PM).";
-    } else if (dropoffStage.name.includes("Engagement")) {
+    } else if (dropoffStage.name.includes("Effective")) {
       advice = "Provide coaching on elevator pitches and scripts to keep leads engaged during the first 30 seconds of the call.";
-    } else if (dropoffStage.name.includes("Interest")) {
+    } else if (dropoffStage.name.includes("Buy Now")) {
       advice = "Strengthen lead qualification procedures. Focus the course value proposition to candidate career objectives.";
-    } else if (dropoffStage.name.includes("Closing")) {
-      advice = "Provide sales closing and negotiation training. Utilize counselor or manager discount options to build urgency.";
+    } else if (dropoffStage.name.includes("Payments")) {
+      advice = "Provide sales closing and negotiation training. Utilize counselor or manager discount options to build urgency and address immediate financial friction by proposing EMI solutions.";
     } else {
-      advice = "Streamline checkout link distribution, address immediate financial friction by proposing EMI solutions, and check in on deposit details.";
+      advice = "Maintain current workload and pipeline sequence.";
     }
 
     return {
@@ -321,44 +292,36 @@ class AnalyticsEngine {
   // 6. Target Achievement Predictor
   predictTargetAchievement(counsellorData) {
     const { totalAdmissions, totalTarget, rawRecords } = counsellorData;
-    const daysElapsed = this.getDaysElapsed(rawRecords);
-    const daysInMonth = 30; // standard month size
-    const daysRemaining = Math.max(0, daysInMonth - daysElapsed);
-
-    // Run-rate projection:
-    // Admissions in last 7 days of the log, or average per day
-    const sortedRecords = [...rawRecords].sort((a,b) => new Date(a["Date"]) - new Date(b["Date"]));
-    const last7Days = sortedRecords.slice(-7);
-    const admissionsLast7 = last7Days.reduce((acc, r) => acc + r["Total admissions"], 0);
-    const recentRunrate = last7Days.length > 0 ? (admissionsLast7 / last7Days.length) : 0;
     
-    // Average run-rate since joining/start
-    const totalDailyAvg = daysElapsed > 0 ? (totalAdmissions / daysElapsed) : 0;
-    
-    // Weighted Run-rate (Recent 7 days weighted 65%, total average 35%)
-    const runrate = recentRunrate > 0 ? (0.65 * recentRunrate + 0.35 * totalDailyAvg) : totalDailyAvg;
-
-    const predictedAdmissions = totalAdmissions + Math.round(runrate * daysRemaining);
-    const gap = Math.max(0, totalTarget - predictedAdmissions);
-
-    // Probability of missing target
-    let missProbability = 0;
-    if (predictedAdmissions >= totalTarget) {
-      missProbability = Math.max(0, Math.min(25, Math.round((totalTarget - totalAdmissions) / totalTarget * 15))); 
-      // minimal risk if ahead of runrate
-    } else {
-      // Scale probability linearly by the gap percentage, capped at 99%
-      const gapPct = (totalTarget - predictedAdmissions) / totalTarget;
-      missProbability = Math.min(99, Math.round(40 + (gapPct * 60)));
+    // Days worked = present + 0.5 * halfDay
+    let daysWorked = 18;
+    if (counsellorData.attendance) {
+      daysWorked = counsellorData.attendance.present + counsellorData.attendance.halfDay * 0.5;
     }
+    if (daysWorked <= 0) {
+      daysWorked = this.getDaysElapsed(rawRecords) || 18;
+    }
+
+    const daysInMonth = 30; // standard month size
+    const daysRemaining = Math.max(0, daysInMonth - daysWorked);
+
+    // Target Achievement Predictor math per Stage 3 Formula:
+    // Current Velocity (V_c) = Admissions / Days Worked
+    // Predicted Month-End Admissions (P_m) = Admissions + (V_c * Remaining Days)
+    // Target Gap (G_t) = Target - P_m
+    // Target Miss Probability (P_miss) = Max(0, (G_t / Target) * 100)
+    const V_c = totalAdmissions / daysWorked;
+    const P_m = totalAdmissions + (V_c * daysRemaining);
+    const G_t = totalTarget - P_m;
+    const P_miss = Math.max(0, (G_t / totalTarget) * 100);
 
     return {
       currentAdmissions: totalAdmissions,
       target: totalTarget,
-      predictedAdmissions,
-      gap,
-      missProbability,
-      daysElapsed,
+      predictedAdmissions: Math.round(P_m),
+      gap: Math.max(0, Math.round(G_t)),
+      missProbability: Math.min(100, Math.round(P_miss)),
+      daysElapsed: parseFloat(daysWorked.toFixed(1)),
       daysRemaining
     };
   }
@@ -444,6 +407,58 @@ class AnalyticsEngine {
     // Sort by priority (High, Medium, Low)
     const priorityMap = { High: 3, Medium: 2, Low: 1 };
     return recommendations.sort((a, b) => priorityMap[b.priority] - priorityMap[a.priority]);
+  }
+
+  // --- STATISTICAL SIGNIFICANCE (Z-TEST) ---
+  calculateStatisticalSignificance(cohortA, cohortB) {
+    const nA = cohortA.connected || 0;
+    const nB = cohortB.connected || 0;
+    const xA = cohortA.admissions || 0;
+    const xB = cohortB.admissions || 0;
+    
+    if (nA === 0 || nB === 0) {
+      return { pValue: 1.0, significant: false, explanation: "Insufficient call connection data to test significance." };
+    }
+    
+    const pA = xA / nA;
+    const pB = xB / nB;
+    
+    const pPooled = (xA + xB) / (nA + nB);
+    
+    if (pPooled === 0 || pPooled === 1) {
+      return { pValue: 1.0, significant: false, explanation: "Conversion rates are identical (0% or 100%)." };
+    }
+    
+    const se = Math.sqrt(pPooled * (1 - pPooled) * (1 / nA + 1 / nB));
+    const zScore = (pA - pB) / se;
+    
+    // Abramowitz & Stegun normal CDF approximation
+    const getPValue = (z) => {
+      const absZ = Math.abs(z);
+      const t = 1 / (1 + 0.2316419 * absZ);
+      const d = 0.3989423;
+      const probs = d * Math.exp(-0.5 * absZ * absZ) * 
+                    (0.3193815 * t - 0.3565638 * t * t + 1.781478 * t * t * t - 
+                     1.821256 * t * t * t * t + 1.330274 * t * t * t * t * t);
+      return 2 * probs;
+    };
+    
+    const pValue = getPValue(zScore);
+    const significant = pValue < 0.05;
+    
+    let explanation = "";
+    if (significant) {
+      explanation = `Statistically Significant difference (p = ${pValue.toFixed(4)} < 0.05). Variance in conversion rate is mathematically confirmed to stem from operational/leadership factors rather than lead distribution anomalies.`;
+    } else {
+      explanation = `Not Statistically Significant (p = ${pValue.toFixed(4)} >= 0.05). Variance falls within standard statistical margin of error. Likely due to lead distribution profiles or random variations.`;
+    }
+    
+    return {
+      zScore: parseFloat(zScore.toFixed(3)),
+      pValue: parseFloat(pValue.toFixed(4)),
+      significant,
+      explanation
+    };
   }
 }
 

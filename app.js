@@ -31,7 +31,32 @@ document.addEventListener("DOMContentLoaded", () => {
   function init() {
     // Start fresh: do not load cache, do not auto-fetch server file, do not load mock data
     const uploadOverlay = document.getElementById("upload-prompt-overlay");
-    if (uploadOverlay) uploadOverlay.style.display = "flex";
+    if (uploadOverlay) {
+      uploadOverlay.style.display = "flex";
+      
+      // Inject Demo Mock Data button dynamically to allow easy testing and fallback previews
+      let mockBtn = document.getElementById("load-mock-data-btn");
+      if (!mockBtn) {
+        mockBtn = document.createElement("button");
+        mockBtn.id = "load-mock-data-btn";
+        mockBtn.className = "no-data-btn";
+        mockBtn.style.marginTop = "10px";
+        mockBtn.style.backgroundColor = "transparent";
+        mockBtn.style.border = "1px solid var(--accent-info)";
+        mockBtn.style.color = "var(--accent-info)";
+        mockBtn.textContent = "Or Load Demo Mock Data";
+        uploadOverlay.appendChild(mockBtn);
+        
+        mockBtn.addEventListener("click", () => {
+          uploadOverlay.style.display = "none";
+          document.getElementById("data-status-text").textContent = "Using Mock Dataset";
+          document.getElementById("data-status-dot").style.backgroundColor = "var(--accent-safe)";
+          document.getElementById("data-status-dot").style.boxShadow = "var(--glow-shadow-safe)";
+          dp.loadDataset(window.MOCK_DATA);
+          finishInit();
+        });
+      }
+    }
 
     document.getElementById("data-status-text").textContent = "No File Uploaded";
     document.getElementById("data-status-dot").style.backgroundColor = "var(--accent-critical)";
@@ -44,23 +69,65 @@ document.addEventListener("DOMContentLoaded", () => {
   function finishInit() {
     // Set Initial Date Range (Min/Max of data)
     const options = dp.getFiltersOptions();
-    document.getElementById("filter-start-date").value = options.minDate;
-    document.getElementById("filter-end-date").value = options.maxDate;
     
-    dp.setFilter("startDate", options.minDate);
-    dp.setFilter("endDate", options.maxDate);
+    // State preservation: Load preserved filters
+    const saved = localStorage.getItem("ai_counsellor_portal_state");
+    let savedFilters = null;
+    if (saved) {
+      try {
+        savedFilters = JSON.parse(saved).filters;
+      } catch (err) {}
+    }
+
+    const startDate = (savedFilters && savedFilters.startDate) || options.minDate;
+    const endDate = (savedFilters && savedFilters.endDate) || options.maxDate;
+
+    document.getElementById("filter-start-date").value = startDate;
+    document.getElementById("filter-end-date").value = endDate;
+    
+    dp.setFilter("startDate", startDate);
+    dp.setFilter("endDate", endDate);
 
     // Populate Filters
     populateFilterDropdowns();
-    
-    // Bind Event Listeners
-    bindEvents();
+
+    if (savedFilters) {
+      if (savedFilters.manager) {
+        document.getElementById("filter-manager").value = savedFilters.manager;
+        dp.filters.manager = savedFilters.manager;
+      }
+      if (savedFilters.teamLead) {
+        document.getElementById("filter-team-lead").value = savedFilters.teamLead;
+        dp.filters.teamLead = savedFilters.teamLead;
+      }
+      if (savedFilters.campaign) {
+        document.getElementById("filter-campaign").value = savedFilters.campaign;
+        dp.filters.campaign = savedFilters.campaign;
+      }
+      if (savedFilters.month) {
+        const mSel = document.getElementById("filter-month");
+        if (mSel) {
+          mSel.value = savedFilters.month;
+          dp.filters.month = savedFilters.month;
+        }
+      }
+      if (savedFilters.daysLimit) {
+        const dSel = document.getElementById("filter-days");
+        if (dSel) {
+          dSel.value = savedFilters.daysLimit;
+          dp.filters.daysLimit = savedFilters.daysLimit;
+        }
+      }
+    }
     
     // Set default selected profile
     if (dp.counsellorsList.length > 0) {
-      activeCounsellorEmail = dp.counsellorsList[0].email;
+      activeCounsellorEmail = (savedFilters && savedFilters.counsellorEmail) || dp.counsellorsList[0].email;
       populateProfileSelector();
     }
+
+    // Apply sorting header icons
+    updateSortingIcons();
 
     // Draw Dashboard
     renderActiveView();
@@ -74,6 +141,60 @@ document.addEventListener("DOMContentLoaded", () => {
     const mgrSelect = document.getElementById("filter-manager");
     const tlSelect = document.getElementById("filter-team-lead");
     const campSelect = document.getElementById("filter-campaign");
+
+    // Dynamic Injection of Month and Days select dropdown elements if they don't exist
+    let monthSelect = document.getElementById("filter-month");
+    if (!monthSelect) {
+      const group = document.createElement("div");
+      group.className = "filter-group";
+      group.innerHTML = `
+        <span class="filter-label">Month:</span>
+        <select id="filter-month" class="filter-select">
+          <option value="all">All Months</option>
+          <option value="04">April</option>
+          <option value="05">May</option>
+          <option value="06">June</option>
+        </select>
+      `;
+      const headerFilters = document.querySelector(".header-filters");
+      const roleBadge = document.querySelector(".role-badge-container");
+      if (headerFilters && roleBadge) {
+        headerFilters.insertBefore(group, roleBadge);
+      }
+      monthSelect = document.getElementById("filter-month");
+      
+      // Bind event listener to trigger unified filter apply
+      monthSelect.addEventListener("change", (e) => {
+        dp.setFilter("month", e.target.value);
+        onFiltersChanged();
+      });
+    }
+
+    let daysSelect = document.getElementById("filter-days");
+    if (!daysSelect) {
+      const group = document.createElement("div");
+      group.className = "filter-group";
+      group.innerHTML = `
+        <span class="filter-label">Days:</span>
+        <select id="filter-days" class="filter-select">
+          <option value="all">All Days</option>
+          <option value="7">Last 7 Days</option>
+          <option value="30">Last 30 Days</option>
+        </select>
+      `;
+      const headerFilters = document.querySelector(".header-filters");
+      const roleBadge = document.querySelector(".role-badge-container");
+      if (headerFilters && roleBadge) {
+        headerFilters.insertBefore(group, roleBadge);
+      }
+      daysSelect = document.getElementById("filter-days");
+      
+      // Bind event listener to trigger unified filter apply
+      daysSelect.addEventListener("change", (e) => {
+        dp.setFilter("daysLimit", e.target.value);
+        onFiltersChanged();
+      });
+    }
 
     // Preserve first option ("All")
     mgrSelect.innerHTML = '<option value="all">All Managers</option>';
@@ -111,6 +232,33 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       selector.value = activeCounsellorEmail;
     }
+  }
+
+  // --- MULTI-SHEET MODAL MANAGEMENT ---
+  function openSheetSelectorModal(sheetNames) {
+    const modal = document.getElementById("multi-sheet-modal");
+    const container = document.getElementById("sheet-checkboxes-container");
+    container.innerHTML = "";
+    
+    sheetNames.forEach(name => {
+      container.innerHTML += `
+        <div class="sheet-option-item" onclick="const cb = this.querySelector('input'); cb.checked = !cb.checked; event.stopPropagation();">
+          <input type="checkbox" class="sheet-option-checkbox" value="${name}" data-sheet-name="${name}" onclick="event.stopPropagation();">
+          <label class="sheet-option-label">${name}</label>
+        </div>
+      `;
+    });
+    
+    // Select all by default
+    document.querySelectorAll(".sheet-option-checkbox").forEach(cb => cb.checked = true);
+    
+    modal.style.display = "flex";
+  }
+
+  function closeSheetSelectorModal() {
+    const modal = document.getElementById("multi-sheet-modal");
+    modal.style.display = "none";
+    document.getElementById("excel-file-input").value = "";
   }
 
   // --- EVENT BINDERS ---
@@ -169,12 +317,17 @@ document.addEventListener("DOMContentLoaded", () => {
       const file = e.target.files[0];
       if (!file) return;
 
-      dp.parseExcelFile(file, (err, dataset) => {
+      dp.parseExcelFile(file, (err, result) => {
         if (err) {
           alert(`Excel Parsing Error: ${err.message}`);
           return;
         }
         
+        if (result.isMultiSheet) {
+          openSheetSelectorModal(result.sheetNames);
+          return;
+        }
+
         // Hide upload prompt overlay
         const uploadOverlay = document.getElementById("upload-prompt-overlay");
         if (uploadOverlay) uploadOverlay.style.display = "none";
@@ -184,22 +337,61 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("data-status-dot").style.backgroundColor = "var(--accent-info)";
         document.getElementById("data-status-dot").style.boxShadow = "var(--glow-shadow-info)";
         
-        // Set Date Range dynamically from uploaded dataset min/max dates
-        const dateOpts = dp.getFiltersOptions();
-        document.getElementById("filter-start-date").value = dateOpts.minDate;
-        document.getElementById("filter-end-date").value = dateOpts.maxDate;
-        dp.setFilter("startDate", dateOpts.minDate);
-        dp.setFilter("endDate", dateOpts.maxDate);
+        // Clean and unify setup by calling finishInit
+        finishInit();
+      });
+    });
 
-        // Reset and populate filters
-        populateFilterDropdowns();
-        if (dp.counsellorsList.length > 0) {
-          activeCounsellorEmail = dp.counsellorsList[0].email;
-          populateProfileSelector();
+    // Sheet Selection Modal handlers
+    document.getElementById("close-sheet-modal").addEventListener("click", () => {
+      closeSheetSelectorModal();
+    });
+    
+    document.getElementById("btn-cancel-load").addEventListener("click", () => {
+      closeSheetSelectorModal();
+    });
+
+    document.getElementById("btn-select-all-sheets").addEventListener("click", () => {
+      document.querySelectorAll(".sheet-option-checkbox").forEach(cb => cb.checked = true);
+    });
+
+    document.getElementById("btn-deselect-all-sheets").addEventListener("click", () => {
+      document.querySelectorAll(".sheet-option-checkbox").forEach(cb => cb.checked = false);
+    });
+
+    document.getElementById("btn-confirm-load-sheets").addEventListener("click", () => {
+      const selectedSheets = [];
+      document.querySelectorAll(".sheet-option-checkbox").forEach(cb => {
+        if (cb.checked) {
+          selectedSheets.push(cb.value);
         }
+      });
+
+      if (selectedSheets.length === 0) {
+        alert("Please select at least one sheet to load.");
+        return;
+      }
+
+      dp.loadSheets(selectedSheets, (err, mergedDataset) => {
+        if (err) {
+          alert(`Error loading selected sheets: ${err.message}`);
+          return;
+        }
+
+        // Hide modal
+        closeSheetSelectorModal();
+
+        // Hide upload prompt overlay
+        const uploadOverlay = document.getElementById("upload-prompt-overlay");
+        if (uploadOverlay) uploadOverlay.style.display = "none";
+
+        // Success
+        document.getElementById("data-status-text").textContent = "Uploaded Sheets Active";
+        document.getElementById("data-status-dot").style.backgroundColor = "var(--accent-info)";
+        document.getElementById("data-status-dot").style.boxShadow = "var(--glow-shadow-info)";
         
-        // Draw views
-        onFiltersChanged();
+        // Clean and unify setup by calling finishInit
+        finishInit();
       });
     });
 
@@ -234,6 +426,60 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
 
+    // Regex Search Checkbox trigger
+    const regexModeCheckbox = document.getElementById("regex-search-mode");
+    if (regexModeCheckbox) {
+      regexModeCheckbox.addEventListener("change", () => {
+        renderPerformanceView();
+      });
+    }
+
+    // Bind Table Sorting triggers
+    bindTableSorting();
+
+    // Bind Sliding Profile Drawer close events
+    const drawerClose = document.getElementById("drawer-close-btn");
+    if (drawerClose) {
+      drawerClose.addEventListener("click", () => {
+        document.getElementById("profile-drawer").classList.remove("open");
+      });
+    }
+
+    // Bind sliding drawer tab changes
+    document.querySelectorAll(".drawer-tab-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".drawer-tab-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        const target = btn.getAttribute("data-drawer-tab");
+        document.querySelectorAll(".drawer-tab-content").forEach(content => {
+          content.style.display = content.id === target ? "flex" : "none";
+        });
+      });
+    });
+
+    // Bind daily/hourly segmented toggles in drawer
+    const dailyBtn = document.getElementById("drawer-view-daily-btn");
+    const hourlyBtn = document.getElementById("drawer-view-hourly-btn");
+    if (dailyBtn && hourlyBtn) {
+      dailyBtn.addEventListener("click", () => {
+        dailyBtn.classList.add("active");
+        dailyBtn.style.color = "var(--text-primary)";
+        hourlyBtn.classList.remove("active");
+        hourlyBtn.style.color = "var(--text-muted)";
+        drawerChartType = "daily";
+        renderDrawerTrendChart();
+      });
+
+      hourlyBtn.addEventListener("click", () => {
+        hourlyBtn.classList.add("active");
+        hourlyBtn.style.color = "var(--text-primary)";
+        dailyBtn.classList.remove("active");
+        dailyBtn.style.color = "var(--text-muted)";
+        drawerChartType = "hourly";
+        renderDrawerTrendChart();
+      });
+    }
+
     // Mobile Navigation Drawer Toggle Handlers
     const sidebar = document.querySelector(".sidebar");
     const overlay = document.getElementById("sidebar-overlay");
@@ -258,6 +504,47 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       });
     }
+  }
+
+  // --- MULTI-COLUMN SORTING BINDER HELPERS ---
+  function bindTableSorting() {
+    const headers = document.querySelectorAll(".sortable-header");
+    headers.forEach(th => {
+      th.addEventListener("click", (e) => {
+        const field = th.getAttribute("data-sort");
+        const isShift = e.shiftKey;
+        
+        const existingIdx = dp.sortDescriptors.findIndex(d => d.field === field);
+        let dir = "asc";
+        
+        if (existingIdx !== -1) {
+          dir = dp.sortDescriptors[existingIdx].dir === "asc" ? "desc" : "asc";
+          dp.sortDescriptors[existingIdx].dir = dir;
+        } else {
+          if (!isShift) {
+            dp.sortDescriptors = [];
+          }
+          dp.sortDescriptors.push({ field, dir });
+        }
+        
+        dp.saveStateToLocalStorage();
+        updateSortingIcons();
+        renderPerformanceView();
+      });
+    });
+  }
+
+  function updateSortingIcons() {
+    const headers = document.querySelectorAll(".sortable-header");
+    headers.forEach(th => {
+      const field = th.getAttribute("data-sort");
+      const desc = dp.sortDescriptors.find(d => d.field === field);
+      if (desc) {
+        th.setAttribute("data-dir", desc.dir);
+      } else {
+        th.removeAttribute("data-dir");
+      }
+    });
   }
 
   // Handle updates when filters change
@@ -430,8 +717,47 @@ document.addEventListener("DOMContentLoaded", () => {
     riskStatus.textContent = highRiskCount > 0 ? `${highRiskCount} counsellors need coaching` : "All targets safe";
     riskStatus.className = highRiskCount > 0 ? "kpi-trend down" : "kpi-trend up";
 
-    // Daily activity trend line
+    // Set Financial counters (Module 1)
+    const grossMarginEl = document.getElementById("kpi-gross-margin");
+    const grossMarginPctEl = document.getElementById("kpi-gross-margin-pct");
+    const operationalBurnEl = document.getElementById("kpi-operational-burn");
+
+    if (grossMarginEl && grossMarginPctEl && operationalBurnEl) {
+      grossMarginEl.textContent = `₹${Math.round(aggr.grossMargin).toLocaleString()}`;
+      grossMarginPctEl.textContent = `${aggr.grossMarginPercentage}% Gross Margin`;
+      grossMarginPctEl.className = aggr.grossMarginPercentage >= 40 ? "kpi-trend up" : "kpi-trend down";
+      operationalBurnEl.textContent = `₹${Math.round(aggr.operationalBurn).toLocaleString()}`;
+    }
+
+    // Systemic trend warning indicator (Module 1)
     const dailyTrend = dp.getDailyTrend();
+    const trendAlert = document.getElementById("systemic-trend-alert");
+    if (trendAlert && dailyTrend.length >= 6) {
+      const mid = Math.floor(dailyTrend.length / 2);
+      const firstHalf = dailyTrend.slice(0, mid);
+      const secondHalf = dailyTrend.slice(mid);
+      
+      const firstAdmissions = firstHalf.reduce((s, t) => s + t.admissions, 0);
+      const firstConnected = firstHalf.reduce((s, t) => s + t.connected, 0);
+      const secondAdmissions = secondHalf.reduce((s, t) => s + t.admissions, 0);
+      const secondConnected = secondHalf.reduce((s, t) => s + t.connected, 0);
+      
+      const rate1 = firstConnected > 0 ? (firstAdmissions / firstConnected * 100) : 0;
+      const rate2 = secondConnected > 0 ? (secondAdmissions / secondConnected * 100) : 0;
+      
+      const drop = rate1 - rate2;
+      
+      if (drop > 5.0) {
+        trendAlert.style.display = "flex";
+        document.getElementById("systemic-trend-desc").textContent = `Macro conversion rate has dropped by ${drop.toFixed(1)}% (from ${rate1.toFixed(1)}% to ${rate2.toFixed(1)}%) between the first half and second half of the date range.`;
+      } else {
+        trendAlert.style.display = "none";
+      }
+    } else if (trendAlert) {
+      trendAlert.style.display = "none";
+    }
+
+    // Daily activity trend line
     ce.renderCallActivityTrend("exec-activity-chart", dailyTrend);
 
     // Target Achievement cumulative path
@@ -442,8 +768,17 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function renderExecMiniLists(breakdown) {
-    // Sort for top performers
-    const sortedPerformers = [...breakdown].sort((a,b) => b.totalAdmissions - a.totalAdmissions).slice(0, 3);
+    // Live leaderboard highlighting Top Performers normalized by FPI (Module 1)
+    const sortedPerformers = [...breakdown]
+      .map(c => {
+        const leadQuality = ae.calculateLeadQuality(c);
+        const fair = ae.calculateFairScore(c, leadQuality);
+        const fpi = fair.fpi;
+        return { ...c, fpi };
+      })
+      .sort((a,b) => b.fpi - a.fpi)
+      .slice(0, 3);
+
     const topList = document.getElementById("exec-top-performers-list");
     topList.innerHTML = "";
     sortedPerformers.forEach((p, idx) => {
@@ -451,7 +786,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="diagnostic-card safe" style="margin-bottom:8px; cursor:pointer;" onclick="window.routeToProfile('${p.email}')">
           <div class="diagnostic-indicator">🏆</div>
           <div class="diagnostic-info">
-            <div class="diagnostic-title">#${idx+1} ${p.name}</div>
+            <div class="diagnostic-title">#${idx+1} ${p.name} (FPI: ${p.fpi.toFixed(2)})</div>
             <div class="diagnostic-desc">${p.totalAdmissions} Admissions (Conv: ${p.conversionPercentage}%)</div>
           </div>
         </div>
@@ -520,11 +855,22 @@ document.addEventListener("DOMContentLoaded", () => {
     tableBody.innerHTML = "";
 
     const searchVal = document.getElementById("search-counsellor").value.toLowerCase();
+    const isRegex = document.getElementById("regex-search-mode").checked;
     const bandVal = document.getElementById("filter-performance-band").value;
 
     // Register search/band filter dynamically
     const filteredBreakdown = breakdown.filter(c => {
-      const matchSearch = c.name.toLowerCase().includes(searchVal) || c.email.toLowerCase().includes(searchVal);
+      let matchSearch = false;
+      if (isRegex && searchVal) {
+        try {
+          const regex = new RegExp(searchVal, 'i');
+          matchSearch = regex.test(c.name) || regex.test(c.email);
+        } catch (e) {
+          matchSearch = c.name.toLowerCase().includes(searchVal) || c.email.toLowerCase().includes(searchVal);
+        }
+      } else {
+        matchSearch = c.name.toLowerCase().includes(searchVal) || c.email.toLowerCase().includes(searchVal);
+      }
       const matchBand = bandVal === "all" || c.band === bandVal;
       return matchSearch && matchBand;
     });
@@ -534,7 +880,10 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    filteredBreakdown.forEach(c => {
+    // Sort using the Multi-Column Sorting descriptors
+    const sortedBreakdown = dp.sortBreakdown(filteredBreakdown);
+
+    sortedBreakdown.forEach(c => {
       const risk = ae.calculateRiskScore(c);
       const leadQuality = ae.calculateLeadQuality(c);
       const fair = ae.calculateFairScore(c, leadQuality);
@@ -572,10 +921,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Helper link to trigger individual profile routing from cards/rows
   window.routeToProfile = (email) => {
-    activeCounsellorEmail = email;
-    const selector = document.getElementById("profile-selector-dropdown");
-    if (selector) selector.value = email;
-    switchView("view-profile");
+    // Intercept to open contextual slide-in drawer instead of switching views (Module 5)
+    openProfileDrawer(email);
   };
 
   window.routeToRecommendations = () => {
@@ -598,18 +945,23 @@ document.addEventListener("DOMContentLoaded", () => {
         sortedList.sort((a,b) => b.totalAdmissions - a.totalAdmissions);
         break;
       case "improved":
-        titleBox.textContent = "Leaderboard: Most Improved (by Conversion delta against expectations)";
+        titleBox.textContent = "Leaderboard: FPI Performance Score (Expected vs Actual normalized)";
         sortedList.sort((a,b) => {
           const lqa = ae.calculateLeadQuality(a);
           const lqb = ae.calculateLeadQuality(b);
           const fairA = ae.calculateFairScore(a, lqa);
           const fairB = ae.calculateFairScore(b, lqb);
-          return fairB.difference - fairA.difference;
+          return fairB.fpi - fairA.fpi;
         });
         break;
       case "closers":
-        titleBox.textContent = "Leaderboard: Best Closers (by Conversion rate)";
-        sortedList.sort((a,b) => b.conversionPercentage - a.conversionPercentage);
+        // Sorting by Closing Velocity (Module 11) - simulated closing days (lower is better!)
+        titleBox.textContent = "Leaderboard: Closing Velocity (Simulated Days to Close)";
+        sortedList.sort((a,b) => {
+          const vA = 12.5 - a.conversionPercentage * 0.4;
+          const vB = 12.5 - b.conversionPercentage * 0.4;
+          return vA - vB;
+        });
         break;
       case "risk":
         titleBox.textContent = "Leaderboard: High Risk (by AI Risk Score)";
@@ -620,11 +972,20 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         break;
       case "lazy":
-        titleBox.textContent = "Leaderboard: Low Activity (by average daily dials)";
+        // Sorting by MoM Performance Velocity (Module 11) - delta in conversion rate
+        titleBox.textContent = "Leaderboard: MoM Performance Velocity (Conversion Delta between halves)";
         sortedList.sort((a,b) => {
-          const activeA = a.attendance.present + a.attendance.halfDay * 0.5 || 1;
-          const activeB = b.attendance.present + b.attendance.halfDay * 0.5 || 1;
-          return (a.totalDials / activeA) - (b.totalDials / activeB);
+          const getVelocity = (c) => {
+            const records = c.rawRecords || [];
+            if (records.length < 2) return 0;
+            const mid = Math.floor(records.length / 2);
+            const first = records.slice(0, mid);
+            const second = records.slice(mid);
+            const r1 = dp.getAggregates(first).conversionPercentage;
+            const r2 = dp.getAggregates(second).conversionPercentage;
+            return r2 - r1;
+          };
+          return getVelocity(b) - getVelocity(a);
         });
         break;
     }
@@ -634,8 +995,29 @@ document.addEventListener("DOMContentLoaded", () => {
       const leadQuality = ae.calculateLeadQuality(c);
       const fair = ae.calculateFairScore(c, leadQuality);
 
-      const activeDays = c.attendance.present + c.attendance.halfDay * 0.5 || 1;
-      const dailyDials = Math.round(c.totalDials / activeDays);
+      const fpiVal = fair.fpi;
+      const closingVelocity = (12.5 - c.conversionPercentage * 0.4).toFixed(1);
+
+      // MoM Velocity
+      const records = c.rawRecords || [];
+      let momVelocity = 0;
+      if (records.length >= 2) {
+        const mid = Math.floor(records.length / 2);
+        const r1 = dp.getAggregates(records.slice(0, mid)).conversionPercentage;
+        const r2 = dp.getAggregates(records.slice(mid)).conversionPercentage;
+        momVelocity = r2 - r1;
+      }
+
+      // FIX: Calculate ACTUAL Avg Daily Dials = totalDials / unique working days
+      const uniqueDays = new Set(records.map(r => r["Date"]).filter(Boolean)).size || 1;
+      const avgDailyDials = Math.round(c.totalDials / uniqueDays);
+
+      let metricValText = "";
+      if (category === "top") metricValText = `${avgDailyDials} calls/day`;
+      else if (category === "improved") metricValText = `FPI Score: ${fpiVal.toFixed(2)}`;
+      else if (category === "closers") metricValText = `Velocity: ${closingVelocity} days`;
+      else if (category === "risk") metricValText = `Risk: ${risk.score}`;
+      else if (category === "lazy") metricValText = `Velocity Shift: ${momVelocity > 0 ? '+' : ''}${momVelocity.toFixed(1)}%`;
 
       tableBody.innerHTML += `
         <tr style="cursor:pointer;" onclick="window.routeToProfile('${c.email}')">
@@ -644,7 +1026,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <td><strong>${c.totalAdmissions}</strong></td>
           <td>${c.targetAchievement}%</td>
           <td>${c.conversionPercentage}%</td>
-          <td>${dailyDials} calls/day</td>
+          <td>${metricValText}</td>
           <td><span class="status-pill ${risk.category === "Red" ? "red" : risk.category === "Yellow" ? "yellow" : "green"}">${risk.score} (${risk.category})</span></td>
           <td><span class="status-pill ${fair.color}">${fair.rating}</span></td>
         </tr>
@@ -898,6 +1280,54 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Render Side-by-side comparative Bar chart
     ce.renderTeamComparison("compare-bar-chart", categories, admissionsData, conversionData);
+
+    // Calculate statistical significance between the top 2 cohorts by admissions (Module 10)
+    let significanceBoxId = "compare-significance-box";
+    let sigBox = document.getElementById(significanceBoxId);
+    if (!sigBox) {
+      sigBox = document.createElement("div");
+      sigBox.id = significanceBoxId;
+      sigBox.className = "dashboard-panel";
+      sigBox.style.marginTop = "20px";
+      sigBox.style.gridColumn = "span 2";
+      
+      const compareGrid = document.querySelector("#view-team-compare .dashboard-row-grid");
+      if (compareGrid) {
+        compareGrid.appendChild(sigBox);
+      }
+    }
+
+    const sortedGroups = categories
+      .map(k => ({ key: k, ...groups[k] }))
+      .sort((a, b) => b.admissions - a.admissions);
+
+    if (sortedGroups.length >= 2) {
+      const cohortA = sortedGroups[0];
+      const cohortB = sortedGroups[1];
+      const result = ae.calculateStatisticalSignificance(cohortA, cohortB);
+      
+      const alertClass = result.significant ? "critical" : "safe";
+      const icon = result.significant ? "⚡" : "✓";
+      
+      sigBox.innerHTML = `
+        <div class="panel-header" style="border:none; padding:0; margin-bottom:8px;">
+          <h4 style="font-size:0.95rem; margin:0; font-family:'Outfit'; font-weight:700;">Cohort Conversion Rate Statistical Significance</h4>
+        </div>
+        <div class="diagnostic-card ${alertClass}" style="margin:0;">
+          <div class="diagnostic-indicator">${icon}</div>
+          <div class="diagnostic-info">
+            <div class="diagnostic-title" style="font-weight:700;">Comparing: "${cohortA.key}" vs "${cohortB.key}"</div>
+            <div class="diagnostic-desc" style="margin-top:4px; font-size:0.75rem; line-height:1.4;">
+              <strong>${cohortA.key} Conversion:</strong> ${(cohortA.admissions / cohortA.connected * 100).toFixed(1)}% (${cohortA.admissions}/${cohortA.connected})<br>
+              <strong>${cohortB.key} Conversion:</strong> ${(cohortB.admissions / cohortB.connected * 100).toFixed(1)}% (${cohortB.admissions}/${cohortB.connected})<br>
+              <span style="display:inline-block; margin-top:8px; font-weight:600; color:var(--text-primary); font-size:0.8rem;">${result.explanation}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    } else {
+      sigBox.innerHTML = '<div style="font-size:0.8rem; color:var(--text-muted); text-align:center;">Add more data groups to compare statistical significance.</div>';
+    }
   }
 
   // 6. Risk Predictions View
@@ -919,11 +1349,86 @@ document.addEventListener("DOMContentLoaded", () => {
           <td>${pred.currentAdmissions}</td>
           <td><strong style="font-size:0.95rem;">${pred.predictedAdmissions}</strong></td>
           <td>${pred.gap > 0 ? `<span style="color:var(--accent-critical); font-weight:700;">-${pred.gap}</span>` : '<span style="color:var(--accent-safe); font-weight:700;">0</span>'}</td>
-          <td><strong>${pred.missProbability}%</strong></td>
+          <td><strong>${pred.missProbability.toFixed(1)}%</strong></td>
           <td><span class="status-pill ${pillClass}">${risk.category} (${risk.score})</span></td>
         </tr>
       `;
     });
+
+    // Team Target Risk forecasting grid (Module 12)
+    let teamPredictorBoxId = "team-target-predictor-box";
+    let teamBox = document.getElementById(teamPredictorBoxId);
+    if (!teamBox) {
+      teamBox = document.createElement("div");
+      teamBox.id = teamPredictorBoxId;
+      teamBox.className = "dashboard-panel";
+      teamBox.style.gridColumn = "span 2";
+      teamBox.style.marginTop = "20px";
+      
+      const riskContainer = document.querySelector("#view-risk .dashboard-row-grid");
+      if (riskContainer) {
+        riskContainer.appendChild(teamBox);
+      }
+    }
+
+    // Group target progress by Team Lead
+    const teamGroups = {};
+    breakdown.forEach(c => {
+      const tl = c.teamLead || "N/A";
+      const pred = ae.predictTargetAchievement(c);
+      if (!teamGroups[tl]) {
+        teamGroups[tl] = { actual: 0, target: 0, projected: 0, count: 0 };
+      }
+      teamGroups[tl].actual += pred.currentAdmissions;
+      teamGroups[tl].target += pred.target;
+      teamGroups[tl].projected += pred.predictedAdmissions;
+      teamGroups[tl].count++;
+    });
+
+    teamBox.innerHTML = `
+      <div class="panel-header">
+        <h3 class="panel-title">Team-Level Target Risk Forecasting Tracker</h3>
+      </div>
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Team Lead</th>
+              <th>Team Size</th>
+              <th>Group Target</th>
+              <th>Actual Admissions</th>
+              <th>Projected Month-End</th>
+              <th>Projected Gap</th>
+              <th>Miss Probability</th>
+              <th>Status Alert</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${Object.keys(teamGroups).map(tl => {
+              const grp = teamGroups[tl];
+              const gap = Math.max(0, grp.target - grp.projected);
+              const missProb = Math.min(100, Math.max(0, (gap / grp.target) * 100));
+              
+              const statusPill = missProb > 40 ? "red" : missProb > 15 ? "yellow" : "green";
+              const statusText = missProb > 40 ? "HIGH RISK" : missProb > 15 ? "WARNING" : "STABLE";
+              
+              return `
+                <tr>
+                  <td style="font-weight:700; color:var(--accent-info);">${tl}</td>
+                  <td>${grp.count} agents</td>
+                  <td>${grp.target}</td>
+                  <td>${grp.actual}</td>
+                  <td><strong>${grp.projected}</strong></td>
+                  <td>${gap > 0 ? `<span style="color:var(--accent-critical); font-weight:700;">-${gap}</span>` : '<span style="color:var(--accent-safe); font-weight:700;">0</span>'}</td>
+                  <td><strong>${missProb.toFixed(1)}%</strong></td>
+                  <td><span class="status-pill ${statusPill}">${statusText}</span></td>
+                </tr>
+              `;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
   }
 
   // 7. Lead Quality View
@@ -971,6 +1476,60 @@ document.addEventListener("DOMContentLoaded", () => {
         </tr>
       `;
     });
+
+    // Structural Lead Disparities & Overload Warning Monitor (Module 6)
+    const tlGroups = {};
+    breakdown.forEach(c => {
+      const tl = c.teamLead || "N/A";
+      const leadStats = ae.calculateLeadQuality(c);
+      if (!tlGroups[tl]) {
+        tlGroups[tl] = { scores: [], count: 0, hot: 0, warm: 0, cold: 0, totalLeads: 0 };
+      }
+      tlGroups[tl].scores.push(leadStats.score);
+      tlGroups[tl].hot += leadStats.hotLeads;
+      tlGroups[tl].warm += leadStats.warmLeads;
+      tlGroups[tl].cold += leadStats.coldLeads;
+      tlGroups[tl].totalLeads += c.totalConnected;
+    });
+
+    const tls = Object.keys(tlGroups);
+    const tlAverages = tls.map(tl => {
+      const group = tlGroups[tl];
+      const avg = group.scores.length > 0 ? (group.scores.reduce((a, b) => a + b, 0) / group.scores.length) : 0;
+      return { tl, avg, ...group };
+    });
+
+    const orgAvgLqs = tlAverages.length > 0 ? (tlAverages.reduce((s, t) => s + t.avg, 0) / tlAverages.length) : 0;
+
+    const disparityBody = document.getElementById("lead-disparity-table-body");
+    if (disparityBody) {
+      disparityBody.innerHTML = "";
+      tlAverages.forEach(item => {
+        const deviation = item.avg - orgAvgLqs;
+        const isOverloaded = item.avg < orgAvgLqs * 0.90;
+        
+        const badgeClass = isOverloaded ? "red" : "green";
+        const badgeText = isOverloaded ? "OVERLOADED (Low Quality Mix)" : "BALANCED (Standard Mix)";
+        const devPrefix = deviation > 0 ? "+" : "";
+
+        disparityBody.innerHTML += `
+          <tr>
+            <td style="font-weight:700; color:var(--accent-info);">${item.tl}</td>
+            <td>${item.totalLeads} calls connected</td>
+            <td><strong>${item.avg.toFixed(1)}</strong> (Org Avg: ${orgAvgLqs.toFixed(1)})</td>
+            <td>
+              <span style="color:var(--accent-critical); font-weight:600;">Hot: ${item.hot}</span> | 
+              <span style="color:var(--accent-warning); font-weight:600;">Warm: ${item.warm}</span> | 
+              <span style="color:var(--text-secondary);">Cold: ${item.cold}</span>
+            </td>
+            <td style="color:${deviation >= 0 ? 'var(--accent-safe)' : 'var(--accent-critical)'}; font-weight:700;">
+              ${devPrefix}${deviation.toFixed(1)}
+            </td>
+            <td><span class="status-pill ${badgeClass}">${badgeText}</span></td>
+          </tr>
+        `;
+      });
+    }
   }
 
   // 8. Funnel Analysis View
@@ -1188,6 +1747,107 @@ document.addEventListener("DOMContentLoaded", () => {
       currentInsightIndex = idx;
     }
   }
+
+  // --- DRAWER GLOBAL HOOKS & CONTROLLERS ---
+  let drawerChartType = "daily";
+  let activeDrawerEmail = "";
+
+  function openProfileDrawer(email) {
+    activeDrawerEmail = email;
+    const breakdown = dp.getCounsellorBreakdown();
+    const c = breakdown.find(item => item.email === email);
+    if (!c) return;
+
+    document.getElementById("drawer-name").textContent = c.name;
+    document.getElementById("drawer-email").textContent = c.email;
+    document.getElementById("drawer-avatar").textContent = c.name.charAt(0);
+    
+    const risk = ae.calculateRiskScore(c);
+    const riskPill = document.getElementById("drawer-risk-pill");
+    riskPill.textContent = `${risk.category} Risk`;
+    riskPill.className = `status-pill ${risk.category === "Red" ? "red" : risk.category === "Yellow" ? "yellow" : "green"}`;
+    
+    const bandPill = document.getElementById("drawer-band-pill");
+    bandPill.textContent = `${c.band} | ${c.campaign}`;
+
+    const predictor = ae.predictTargetAchievement(c);
+    document.getElementById("drawer-risk-val").textContent = risk.score;
+    ce.renderRiskGauge("drawer-risk-gauge", risk.score);
+    
+    const targetVerdict = document.getElementById("drawer-predictor-verdict");
+    if (predictor.predictedAdmissions >= predictor.target) {
+      targetVerdict.innerHTML = `Projected to hit target! Predicted: <strong>${predictor.predictedAdmissions}</strong> / Target: ${predictor.target}`;
+      targetVerdict.style.color = "var(--accent-safe)";
+    } else {
+      targetVerdict.innerHTML = `Likely to miss. Projected: <strong>${predictor.predictedAdmissions}</strong> (Gap: ${predictor.gap}) | Miss: <strong>${predictor.missProbability}%</strong>`;
+      targetVerdict.style.color = "var(--accent-critical)";
+    }
+
+    document.getElementById("drawer-stat-progress").textContent = `${c.totalAdmissions} / ${c.target}`;
+    document.getElementById("drawer-stat-progress-sub").textContent = `${c.targetAchievement}% Achieved`;
+    
+    document.getElementById("drawer-stat-conversion").textContent = `${c.conversionPercentage}%`;
+    document.getElementById("drawer-stat-conversion-sub").textContent = `${c.totalAdmissions} of ${c.totalConnected} connects`;
+
+    document.getElementById("drawer-stat-attendance").textContent = `${c.attendance.rate}%`;
+    document.getElementById("drawer-stat-attendance-sub").textContent = `Present: ${c.attendance.present} | Absent: ${c.attendance.absent}`;
+
+    const diagnostics = ae.diagnosePerformance(c);
+    document.getElementById("drawer-ai-summary").textContent = generateAISummaryText(c, risk, diagnostics, predictor);
+
+    const normalizedInd = normalizeCounsellorDimensions(c);
+    const normalizedTeamAvg = getTeamAverageNormalizedDimensions(breakdown);
+    ce.renderCounsellorRadar("drawer-radar-chart", c.name, normalizedInd, normalizedTeamAvg);
+
+    const diagList = document.getElementById("drawer-diagnostics-list");
+    diagList.innerHTML = "";
+    diagnostics.forEach(diag => {
+      const isSafe = diag.severity === "Safe";
+      const isCritical = diag.severity === "Critical";
+      const pillClass = isSafe ? "safe" : isCritical ? "critical" : "warning";
+      const flag = isSafe ? "✓" : isCritical ? "🛑" : "⚠️";
+
+      diagList.innerHTML += `
+        <div class="diagnostic-card ${pillClass}" style="margin-bottom:8px; padding: 10px; border-radius: 6px; font-size: 0.75rem;">
+          <div class="diagnostic-indicator" style="margin-right: 8px;">${flag}</div>
+          <div class="diagnostic-info">
+            <div class="diagnostic-title" style="font-weight:700;">${diag.type} (${diag.severity})</div>
+            <div class="diagnostic-desc" style="margin-top: 2px; color: var(--text-secondary);">${diag.explanation}</div>
+            <div style="font-size:0.7rem; font-weight:600; color:var(--text-primary); margin-top:4px;">Action: ${diag.action}</div>
+          </div>
+        </div>
+      `;
+    });
+
+    renderDrawerTrendChart();
+    document.getElementById("profile-drawer").classList.add("open");
+  }
+
+  function renderDrawerTrendChart() {
+    const breakdown = dp.getCounsellorBreakdown();
+    const c = breakdown.find(item => item.email === activeDrawerEmail);
+    if (!c) return;
+
+    if (drawerChartType === "daily") {
+      const indDailyTrend = getCounsellorDailyTrend(c);
+      ce.renderCallActivityTrend("drawer-trend-chart", indDailyTrend);
+    } else {
+      const latestDate = c.rawRecords.length > 0 ? c.rawRecords[c.rawRecords.length - 1]["Date"] : "2026-06-17";
+      const hourlyData = dp.getHourByHourData(c.email, latestDate);
+      const hourlyFormatted = hourlyData.hours.map((h, idx) => ({
+        date: h,
+        dialled: hourlyData.dials[idx],
+        connected: hourlyData.connected[idx],
+        effective: hourlyData.effective[idx]
+      }));
+      ce.renderCallActivityTrend("drawer-trend-chart", hourlyFormatted);
+    }
+  }
+
+  // Bind routeToProfile to drawer helper for contextual rendering
+  window.routeToProfile = (email) => {
+    openProfileDrawer(email);
+  };
 
   // Initialize app
   init();

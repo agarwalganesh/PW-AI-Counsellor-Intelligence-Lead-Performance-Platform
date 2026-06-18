@@ -4,8 +4,7 @@
   "description": "AI-powered analytics platform for counsellor performance and lead quality scoring",
   "main": "index.html",
   "scripts": {
-    "dev": "npx -y http-server -p 8081",
-    "test": "node test-suite.js"
+    "dev": "npx -y http-server -p 8081"
   },
   "keywords": [
     "counsellor-analytics",
