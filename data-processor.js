@@ -530,12 +530,20 @@ class DataProcessor {
 
     let aggregatedTarget = 0;
     counts.uniqueCounsellors.forEach(email => {
-      const cMeta = this.counsellorsList.find(c => c.email === email);
-      if (cMeta) {
-        aggregatedTarget += cMeta.target;
+      const agentRows = dataset.filter(r => r["Counselor Email"] === email);
+      if (agentRows.length > 0) {
+        const sumTarget = agentRows.reduce((sum, r) => sum + (r["Target"] || 0), 0);
+        const avgTarget = sumTarget / agentRows.length;
+        if (avgTarget <= 5) {
+          // If average row target is small (<= 5), treat as a daily target and sum them
+          aggregatedTarget += sumTarget;
+        } else {
+          // If average row target is large (> 5), treat as a repeated overall target and take average
+          aggregatedTarget += avgTarget;
+        }
       }
     });
-    counts.totalTarget = aggregatedTarget || 30;
+    counts.totalTarget = Math.round(aggregatedTarget) || 30;
 
     const totalCounsellors = counts.uniqueCounsellors.size;
     const conversionPercentage = counts.totalConnected > 0 ? parseFloat(((counts.totalAdmissions / counts.totalConnected) * 100).toFixed(2)) : 0;
@@ -638,7 +646,7 @@ class DataProcessor {
         campaign: meta.campaign || "N/A",
         band: meta.band || "Band B",
         status: meta.status || "Active",
-        target: meta.target || 30,
+        target: aggr.totalTarget || 30,
         ...aggr,
         rawRecords: records
       };
