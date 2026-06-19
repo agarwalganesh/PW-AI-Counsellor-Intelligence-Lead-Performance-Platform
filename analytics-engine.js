@@ -58,7 +58,7 @@ class AnalyticsEngine {
     }
 
     const daysElapsed = this.getDaysElapsed(rawRecords);
-    const expectedProRataTarget = (totalTarget / 30) * daysElapsed;
+    const expectedProRataTarget = totalTarget > 0 ? totalTarget : daysElapsed * 5;
     if (totalAdmissions < expectedProRataTarget) {
       contributors.push({
         factor: "Pro-rata Target Pace",
@@ -75,19 +75,27 @@ class AnalyticsEngine {
     };
   }
 
-  // Helper to extract elapsed days from active records
-  // Helper to extract elapsed days from active records
+  // Helper to extract elapsed days from active records based on filtered range span
   getDaysElapsed(records) {
     if (!records || records.length === 0) return 18; // default fallback (June 18, 2026 anchor day)
     const dates = records.map(r => r["Date"]).filter(Boolean);
     if (dates.length === 0) return 18;
-    // Assume days are counted from day 1 to max day in dates array
+    
+    // Sort dates to find earliest and latest in the range
     const sorted = dates.sort();
+    const earliestDateStr = sorted[0];
     const latestDateStr = sorted[sorted.length - 1];
-    // Parse using T00:00:00 to avoid timezone shifts
+    
+    const earliestDate = new Date(earliestDateStr + "T00:00:00");
     const latestDate = new Date(latestDateStr + "T00:00:00");
-    if (isNaN(latestDate.getTime())) return 18;
-    return latestDate.getDate(); // e.g. 17 for 2026-06-17
+    
+    if (isNaN(earliestDate.getTime()) || isNaN(latestDate.getTime())) return 18;
+    
+    // Calculate calendar day span
+    const diffTime = latestDate.getTime() - earliestDate.getTime();
+    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    
+    return Math.max(1, diffDays);
   }
 
   // 2. Perform Root Cause Analysis Diagnostics
@@ -305,6 +313,10 @@ class AnalyticsEngine {
     const daysInMonth = 30; // standard month size
     const daysRemaining = Math.max(0, daysInMonth - daysWorked);
 
+    // Calculate daily target based on active rows or days worked, fallback to 5
+    const dailyTarget = daysWorked > 0 ? (totalTarget / daysWorked) : 5;
+    const monthEndTarget = daysWorked < 30 ? Math.round(dailyTarget * daysInMonth) : totalTarget;
+
     // Target Achievement Predictor math per Stage 3 Formula:
     // Current Velocity (V_c) = Admissions / Days Worked
     // Predicted Month-End Admissions (P_m) = Admissions + (V_c * Remaining Days)
@@ -312,12 +324,12 @@ class AnalyticsEngine {
     // Target Miss Probability (P_miss) = Max(0, (G_t / Target) * 100)
     const V_c = totalAdmissions / daysWorked;
     const P_m = totalAdmissions + (V_c * daysRemaining);
-    const G_t = totalTarget - P_m;
-    const P_miss = Math.max(0, (G_t / totalTarget) * 100);
+    const G_t = monthEndTarget - P_m;
+    const P_miss = Math.max(0, (G_t / monthEndTarget) * 100);
 
     return {
       currentAdmissions: totalAdmissions,
-      target: totalTarget,
+      target: monthEndTarget,
       predictedAdmissions: Math.round(P_m),
       gap: Math.max(0, Math.round(G_t)),
       missProbability: Math.min(100, Math.round(P_miss)),

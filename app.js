@@ -14,6 +14,20 @@ document.addEventListener("DOMContentLoaded", () => {
   let insightsInterval = null;
   let currentInsightIndex = 0;
 
+  function toTitleCase(str) {
+    if (!str) return "";
+    let namePart = str;
+    if (str.includes("@")) {
+      namePart = str.split("@")[0];
+    }
+    // Replace dots, underscores, dashes with spaces
+    namePart = namePart.replace(/[._-]/g, " ");
+    return namePart
+      .split(" ")
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
+  }
+
   // View Names mapping for title section
   const viewMeta = {
     "view-executive": { title: "Executive Dashboard", subtitle: "AI-powered summary & critical pipeline metrics" },
@@ -70,7 +84,10 @@ document.addEventListener("DOMContentLoaded", () => {
     // Set Initial Date Range (Min/Max of data)
     const options = dp.getFiltersOptions();
     
-    // State preservation: Load preserved filters
+    // \u2705 FIX: loadDataset() now clears "ai_counsellor_portal_state" from localStorage
+    // on fresh file upload, so savedFilters will be null after a new file is loaded.
+    // This prevents stale manager/TL/campaign filters from silently hiding data rows.
+    // savedFilters will only be non-null if the user manually set them in the same session.
     const saved = localStorage.getItem("ai_counsellor_portal_state");
     let savedFilters = null;
     if (saved) {
@@ -79,6 +96,7 @@ document.addEventListener("DOMContentLoaded", () => {
       } catch (err) {}
     }
 
+    // Use data min/max dates — if savedFilters exist and are valid, prefer them
     const startDate = (savedFilters && savedFilters.startDate) || options.minDate;
     const endDate = (savedFilters && savedFilters.endDate) || options.maxDate;
 
@@ -88,25 +106,31 @@ document.addEventListener("DOMContentLoaded", () => {
     dp.setFilter("startDate", startDate);
     dp.setFilter("endDate", endDate);
 
-    // Populate Filters
+    // Populate Filters Dropdowns (uses fresh rawDataset values)
     populateFilterDropdowns();
 
+    // \u2705 FIX: Only restore saved manager/TL/campaign filters if the savedFilters value
+    // actually exists in the new dataset's options. Otherwise silently reset to "all".
     if (savedFilters) {
-      if (savedFilters.manager) {
+      const validManagers = new Set(options.managers || []);
+      const validTLs = new Set(options.teamLeads || []);
+      const validCampaigns = new Set(options.campaigns || []);
+
+      if (savedFilters.manager && validManagers.has(savedFilters.manager)) {
         document.getElementById("filter-manager").value = savedFilters.manager;
         dp.filters.manager = savedFilters.manager;
       }
-      if (savedFilters.teamLead) {
+      if (savedFilters.teamLead && validTLs.has(savedFilters.teamLead)) {
         document.getElementById("filter-team-lead").value = savedFilters.teamLead;
         dp.filters.teamLead = savedFilters.teamLead;
       }
-      if (savedFilters.campaign) {
+      if (savedFilters.campaign && validCampaigns.has(savedFilters.campaign)) {
         document.getElementById("filter-campaign").value = savedFilters.campaign;
         dp.filters.campaign = savedFilters.campaign;
       }
       if (savedFilters.month) {
         const mSel = document.getElementById("filter-month");
-        if (mSel) {
+        if (mSel && Array.from(mSel.options).some(o => o.value === savedFilters.month)) {
           mSel.value = savedFilters.month;
           dp.filters.month = savedFilters.month;
         }
@@ -120,6 +144,9 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
     
+    // Apply filters after all dropdowns are set
+    dp.applyDashboardFilters();
+
     // Set default selected profile
     if (dp.counsellorsList.length > 0) {
       activeCounsellorEmail = (savedFilters && savedFilters.counsellorEmail) || dp.counsellorsList[0].email;
@@ -151,9 +178,6 @@ document.addEventListener("DOMContentLoaded", () => {
         <span class="filter-label">Month:</span>
         <select id="filter-month" class="filter-select">
           <option value="all">All Months</option>
-          <option value="04">April</option>
-          <option value="05">May</option>
-          <option value="06">June</option>
         </select>
       `;
       const headerFilters = document.querySelector(".header-filters");
@@ -168,6 +192,27 @@ document.addEventListener("DOMContentLoaded", () => {
         dp.setFilter("month", e.target.value);
         onFiltersChanged();
       });
+    }
+
+    // Populate month options dynamically
+    const monthNames = {
+      "01": "January", "02": "February", "03": "March", "04": "April",
+      "05": "May", "06": "June", "07": "July", "08": "August",
+      "09": "September", "10": "October", "11": "November", "12": "December"
+    };
+    const prevMonthVal = monthSelect.value;
+    monthSelect.innerHTML = '<option value="all">All Months</option>';
+    if (opts.monthsList) {
+      opts.monthsList.forEach(m => {
+        const label = monthNames[m] || `Month ${m}`;
+        monthSelect.innerHTML += `<option value="${m}">${label}</option>`;
+      });
+    }
+    if (Array.from(monthSelect.options).some(o => o.value === prevMonthVal)) {
+      monthSelect.value = prevMonthVal;
+    } else {
+      monthSelect.value = "all";
+      dp.filters.month = "all";
     }
 
     let daysSelect = document.getElementById("filter-days");
@@ -202,10 +247,10 @@ document.addEventListener("DOMContentLoaded", () => {
     campSelect.innerHTML = '<option value="all">All Campaigns</option>';
 
     opts.managers.forEach(m => {
-      mgrSelect.innerHTML += `<option value="${m}">${m}</option>`;
+      mgrSelect.innerHTML += `<option value="${m}">${toTitleCase(m)}</option>`;
     });
     opts.teamLeads.forEach(tl => {
-      tlSelect.innerHTML += `<option value="${tl}">${tl}</option>`;
+      tlSelect.innerHTML += `<option value="${tl}">${toTitleCase(tl)}</option>`;
     });
     opts.campaigns.forEach(c => {
       campSelect.innerHTML += `<option value="${c}">${c}</option>`;
@@ -241,15 +286,22 @@ document.addEventListener("DOMContentLoaded", () => {
     container.innerHTML = "";
     
     sheetNames.forEach(name => {
-      container.innerHTML += `
-        <div class="sheet-option-item" onclick="const cb = this.querySelector('input'); cb.checked = !cb.checked; event.stopPropagation();">
-          <input type="checkbox" class="sheet-option-checkbox" value="${name}" data-sheet-name="${name}" onclick="event.stopPropagation();">
-          <label class="sheet-option-label">${name}</label>
-        </div>
+      const item = document.createElement("div");
+      item.className = "sheet-option-item";
+      item.innerHTML = `
+        <input type="checkbox" class="sheet-option-checkbox" value="${name}">
+        <label class="sheet-option-label">${name}</label>
       `;
+
+      item.addEventListener("click", (e) => {
+        if (e.target.tagName.toLowerCase() === "input") return;
+        const cb = item.querySelector(".sheet-option-checkbox");
+        if (cb) cb.checked = !cb.checked;
+      });
+
+      container.appendChild(item);
     });
     
-    // Select all by default
     document.querySelectorAll(".sheet-option-checkbox").forEach(cb => cb.checked = true);
     
     modal.style.display = "flex";
@@ -312,35 +364,79 @@ document.addEventListener("DOMContentLoaded", () => {
       renderProfileView();
     });
 
-    // Excel Upload File processor
+    // Excel Upload File processor — supports single AND multiple files
     document.getElementById("excel-file-input").addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
+      const files = e.target.files;
+      if (!files || files.length === 0) return;
 
-      dp.parseExcelFile(file, (err, result) => {
-        if (err) {
-          alert(`Excel Parsing Error: ${err.message}`);
-          return;
+      // Helper: update sidebar loaded-files list
+      const updateFileList = (fileResults, totalRows) => {
+        const listEl = document.getElementById("loaded-files-list");
+        if (listEl) {
+          listEl.innerHTML = fileResults.map(f =>
+            `📄 <strong>${f.name}</strong>: ${f.rows ? f.rows.toLocaleString() + " rows" : "⚠ " + (f.error || "error")}`
+          ).join("<br>") + `<br>✅ <strong>Total: ${totalRows.toLocaleString()} records loaded</strong>`;
         }
-        
-        if (result.isMultiSheet) {
-          openSheetSelectorModal(result.sheetNames);
-          return;
-        }
+      };
 
-        // Hide upload prompt overlay
+      // Helper: show success state
+      const showSuccess = (label) => {
         const uploadOverlay = document.getElementById("upload-prompt-overlay");
         if (uploadOverlay) uploadOverlay.style.display = "none";
-
-        // Success
-        document.getElementById("data-status-text").textContent = "Uploaded Sheet Active";
+        document.getElementById("data-status-text").textContent = label;
         document.getElementById("data-status-dot").style.backgroundColor = "var(--accent-info)";
         document.getElementById("data-status-dot").style.boxShadow = "var(--glow-shadow-info)";
-        
-        // Clean and unify setup by calling finishInit
-        finishInit();
-      });
+        // Show Append button after first load
+        const appendBtn = document.getElementById("append-file-btn");
+        if (appendBtn) appendBtn.style.display = "flex";
+      };
+
+      if (files.length === 1) {
+        // Single file — use original path to preserve multi-sheet modal behaviour
+        dp.parseExcelFile(files[0], (err, result) => {
+          if (err) { alert(`Excel Parsing Error: ${err.message}`); return; }
+          if (result.isMultiSheet) { openSheetSelectorModal(result.sheetNames); return; }
+          showSuccess("Uploaded Sheet Active");
+          updateFileList([{ name: files[0].name, rows: dp.rawDataset.length }], dp.rawDataset.length);
+          finishInit();
+        });
+      } else {
+        // Multiple files — merge all sheets from all files
+        dp.parseMultipleFiles(files, (err, result) => {
+          if (err) { alert(`Excel Parsing Error: ${err.message}`); return; }
+          showSuccess(`${files.length} Files Merged Active`);
+          updateFileList(result.fileResults, result.totalRows);
+          finishInit();
+        });
+      }
+      // Reset input so same files can be re-selected if needed
+      e.target.value = "";
     });
+
+    // Append More Data — merge additional files into currently loaded dataset
+    const appendInput = document.getElementById("excel-append-input");
+    if (appendInput) {
+      appendInput.addEventListener("change", (e) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+
+        dp.appendMultipleFiles(files, (err, result) => {
+          if (err) { alert(`Append Error: ${err.message}`); return; }
+          const listEl = document.getElementById("loaded-files-list");
+          if (listEl) {
+            // Prepend to existing list
+            const added = result.fileResults.map(f =>
+              `➕ <strong>${f.name}</strong>: +${(f.rows || 0).toLocaleString()} rows`
+            ).join("<br>");
+            listEl.innerHTML = added + "<br>" + listEl.innerHTML;
+            listEl.innerHTML += `<br>✅ <strong>Total now: ${result.totalRows.toLocaleString()} records</strong>`;
+          }
+          document.getElementById("data-status-text").textContent = `${result.totalRows.toLocaleString()} Records (Merged)`;
+          finishInit();
+        });
+        e.target.value = "";
+      });
+    }
 
     // Sheet Selection Modal handlers
     document.getElementById("close-sheet-modal").addEventListener("click", () => {
@@ -395,6 +491,55 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
 
+    // Financial settings modal handlers
+    const settingsModal = document.getElementById("settings-modal");
+    const settingsToggleBtn = document.getElementById("settings-toggle-btn");
+    const closeSettingsBtn = document.getElementById("close-settings-modal");
+    const cancelSettingsBtn = document.getElementById("btn-cancel-settings");
+    const saveSettingsBtn = document.getElementById("btn-save-settings");
+
+    if (settingsToggleBtn && settingsModal) {
+      settingsToggleBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        // Populate current values
+        document.getElementById("setting-course-price").value = dp.COURSE_PRICE;
+        document.getElementById("setting-dial-cost").value = dp.DIAL_COST;
+        document.getElementById("setting-salary-daily").value = dp.SALARY_DAILY;
+        
+        settingsModal.style.display = "flex";
+      });
+
+      const closeSettings = () => {
+        settingsModal.style.display = "none";
+      };
+
+      if (closeSettingsBtn) closeSettingsBtn.addEventListener("click", closeSettings);
+      if (cancelSettingsBtn) cancelSettingsBtn.addEventListener("click", closeSettings);
+
+      if (saveSettingsBtn) {
+        saveSettingsBtn.addEventListener("click", () => {
+          const cp = parseFloat(document.getElementById("setting-course-price").value);
+          const dc = parseFloat(document.getElementById("setting-dial-cost").value);
+          const sd = parseFloat(document.getElementById("setting-salary-daily").value);
+
+          if (isNaN(cp) || cp <= 0 || isNaN(dc) || dc < 0 || isNaN(sd) || sd < 0) {
+            alert("Please enter valid positive values for all constants.");
+            return;
+          }
+
+          // Save changes
+          dp.COURSE_PRICE = cp;
+          dp.DIAL_COST = dc;
+          dp.SALARY_DAILY = sd;
+          dp.saveStateToLocalStorage();
+
+          // Refresh UI
+          closeSettings();
+          renderActiveView();
+        });
+      }
+    }
+
     // Export triggers
     document.getElementById("export-excel-btn").addEventListener("click", () => {
       exp.exportToExcel(dp.filteredDataset);
@@ -434,6 +579,15 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
 
+    const searchInput = document.getElementById("search-counsellor");
+    if (searchInput) {
+      searchInput.addEventListener("input", renderPerformanceView);
+    }
+    const bandSelect = document.getElementById("filter-performance-band");
+    if (bandSelect) {
+      bandSelect.addEventListener("change", renderPerformanceView);
+    }
+
     // Bind Table Sorting triggers
     bindTableSorting();
 
@@ -467,6 +621,8 @@ document.addEventListener("DOMContentLoaded", () => {
         hourlyBtn.classList.remove("active");
         hourlyBtn.style.color = "var(--text-muted)";
         drawerChartType = "daily";
+        const warnEl = document.getElementById("drawer-hourly-simulated-warning");
+        if (warnEl) warnEl.style.display = "none";
         renderDrawerTrendChart();
       });
 
@@ -476,6 +632,8 @@ document.addEventListener("DOMContentLoaded", () => {
         dailyBtn.classList.remove("active");
         dailyBtn.style.color = "var(--text-muted)";
         drawerChartType = "hourly";
+        const warnEl = document.getElementById("drawer-hourly-simulated-warning");
+        if (warnEl) warnEl.style.display = "block";
         renderDrawerTrendChart();
       });
     }
@@ -484,6 +642,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const sidebar = document.querySelector(".sidebar");
     const overlay = document.getElementById("sidebar-overlay");
     const menuToggle = document.getElementById("mobile-menu-toggle");
+    const sidebarClose = document.getElementById("mobile-sidebar-close-btn");
 
     if (menuToggle && sidebar && overlay) {
       menuToggle.addEventListener("click", () => {
@@ -495,6 +654,13 @@ document.addEventListener("DOMContentLoaded", () => {
         sidebar.classList.remove("open");
         overlay.classList.remove("open");
       });
+
+      if (sidebarClose) {
+        sidebarClose.addEventListener("click", () => {
+          sidebar.classList.remove("open");
+          overlay.classList.remove("open");
+        });
+      }
 
       // Close drawer automatically when clicking navigation items on mobile viewport
       document.querySelectorAll(".sidebar-nav-link").forEach(link => {
@@ -898,7 +1064,7 @@ document.addEventListener("DOMContentLoaded", () => {
       tableBody.innerHTML += `
         <tr style="cursor:pointer;" onclick="window.routeToProfile('${c.email}')">
           <td style="font-weight:700; color:var(--accent-info);">${c.name}</td>
-          <td><div style="font-size:0.75rem;">TL: ${c.teamLead}</div><div style="font-size:0.7rem; color:var(--text-muted)">Mgr: ${c.manager}</div></td>
+          <td><div style="font-size:0.75rem;">TL: ${toTitleCase(c.teamLead)}</div><div style="font-size:0.7rem; color:var(--text-muted)">Mgr: ${toTitleCase(c.manager)}</div></td>
           <td>${c.campaign}</td>
           <td>${c.attendance.rate}%</td>
           <td>${c.target}</td>
@@ -914,9 +1080,6 @@ document.addEventListener("DOMContentLoaded", () => {
       `;
     });
 
-    // Re-bind input triggers
-    document.getElementById("search-counsellor").oninput = () => renderPerformanceView();
-    document.getElementById("filter-performance-band").onchange = () => renderPerformanceView();
   }
 
   // Helper link to trigger individual profile routing from cards/rows
@@ -1044,8 +1207,8 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("prof-name").textContent = c.name;
     document.getElementById("prof-email").textContent = c.email;
     document.getElementById("prof-avatar").textContent = c.name.charAt(0);
-    document.getElementById("prof-tl").textContent = c.teamLead;
-    document.getElementById("prof-manager").textContent = c.manager;
+    document.getElementById("prof-tl").textContent = toTitleCase(c.teamLead);
+    document.getElementById("prof-manager").textContent = toTitleCase(c.manager);
     document.getElementById("prof-campaign").textContent = c.campaign;
     document.getElementById("prof-band").textContent = `${c.band} | ${c.status}`;
 
@@ -1153,7 +1316,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const dialsMetric = Math.min(100, Math.round((c.totalDials / activeDays) / 80 * 100)); // benchmark 80
     const reachability = Math.min(100, Math.round((c.totalConnected / (c.totalDials || 1)) * 2 * 100)); // benchmark 50%
     const engagement = Math.min(100, Math.round(c.effectiveRatio)); // benchmark 100
-    const closing = Math.min(100, Math.round(c.conversionPercentage / 18 * 100)); // benchmark 18%
+    const closing = Math.min(100, Math.round(c.conversionPercentage / 10 * 100)); // benchmark 10%
     const attendanceVal = Math.min(100, Math.round(c.attendance.rate));
     const avgTalk = c.totalConnected > 0 ? (c.totalTalktime / c.totalConnected) : 0;
     const talktimeVal = Math.min(100, Math.round(avgTalk / 240 * 100)); // benchmark 240s
@@ -1268,9 +1431,10 @@ document.addEventListener("DOMContentLoaded", () => {
       if (avgRisk > 30 && avgRisk <= 60) riskColor = "yellow";
       else if (avgRisk > 60) riskColor = "red";
 
+      const displayName = (category === "lead" || category === "manager") ? toTitleCase(key) : key;
       tableBody.innerHTML += `
         <tr>
-          <td style="font-weight:700; color:var(--accent-info);">${key}</td>
+          <td style="font-weight:700; color:var(--accent-info);">${displayName}</td>
           <td><strong>${grp.admissions}</strong></td>
           <td>${convPct}%</td>
           <td><span class="status-pill ${riskColor}">${avgRisk}</span></td>
@@ -1279,7 +1443,8 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     // Render Side-by-side comparative Bar chart
-    ce.renderTeamComparison("compare-bar-chart", categories, admissionsData, conversionData);
+    const displayCategories = categories.map(k => (category === "lead" || category === "manager") ? toTitleCase(k) : k);
+    ce.renderTeamComparison("compare-bar-chart", displayCategories, admissionsData, conversionData);
 
     // Calculate statistical significance between the top 2 cohorts by admissions (Module 10)
     let significanceBoxId = "compare-significance-box";
@@ -1309,6 +1474,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const alertClass = result.significant ? "critical" : "safe";
       const icon = result.significant ? "⚡" : "✓";
       
+      const keyA = (category === "lead" || category === "manager") ? toTitleCase(cohortA.key) : cohortA.key;
+      const keyB = (category === "lead" || category === "manager") ? toTitleCase(cohortB.key) : cohortB.key;
+
       sigBox.innerHTML = `
         <div class="panel-header" style="border:none; padding:0; margin-bottom:8px;">
           <h4 style="font-size:0.95rem; margin:0; font-family:'Outfit'; font-weight:700;">Cohort Conversion Rate Statistical Significance</h4>
@@ -1316,10 +1484,10 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="diagnostic-card ${alertClass}" style="margin:0;">
           <div class="diagnostic-indicator">${icon}</div>
           <div class="diagnostic-info">
-            <div class="diagnostic-title" style="font-weight:700;">Comparing: "${cohortA.key}" vs "${cohortB.key}"</div>
+            <div class="diagnostic-title" style="font-weight:700;">Comparing: "${keyA}" vs "${keyB}"</div>
             <div class="diagnostic-desc" style="margin-top:4px; font-size:0.75rem; line-height:1.4;">
-              <strong>${cohortA.key} Conversion:</strong> ${(cohortA.admissions / cohortA.connected * 100).toFixed(1)}% (${cohortA.admissions}/${cohortA.connected})<br>
-              <strong>${cohortB.key} Conversion:</strong> ${(cohortB.admissions / cohortB.connected * 100).toFixed(1)}% (${cohortB.admissions}/${cohortB.connected})<br>
+              <strong>${keyA} Conversion:</strong> ${(cohortA.admissions / cohortA.connected * 100).toFixed(1)}% (${cohortA.admissions}/${cohortA.connected})<br>
+              <strong>${keyB} Conversion:</strong> ${(cohortB.admissions / cohortB.connected * 100).toFixed(1)}% (${cohortB.admissions}/${cohortB.connected})<br>
               <span style="display:inline-block; margin-top:8px; font-weight:600; color:var(--text-primary); font-size:0.8rem;">${result.explanation}</span>
             </div>
           </div>
@@ -1414,7 +1582,7 @@ document.addEventListener("DOMContentLoaded", () => {
               
               return `
                 <tr>
-                  <td style="font-weight:700; color:var(--accent-info);">${tl}</td>
+                  <td style="font-weight:700; color:var(--accent-info);">${toTitleCase(tl)}</td>
                   <td>${grp.count} agents</td>
                   <td>${grp.target}</td>
                   <td>${grp.actual}</td>
@@ -1514,7 +1682,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         disparityBody.innerHTML += `
           <tr>
-            <td style="font-weight:700; color:var(--accent-info);">${item.tl}</td>
+            <td style="font-weight:700; color:var(--accent-info);">${toTitleCase(item.tl)}</td>
             <td>${item.totalLeads} calls connected</td>
             <td><strong>${item.avg.toFixed(1)}</strong> (Org Avg: ${orgAvgLqs.toFixed(1)})</td>
             <td>
@@ -1819,6 +1987,10 @@ document.addEventListener("DOMContentLoaded", () => {
       `;
     });
 
+    const warnEl = document.getElementById("drawer-hourly-simulated-warning");
+    if (warnEl) {
+      warnEl.style.display = drawerChartType === "hourly" ? "block" : "none";
+    }
     renderDrawerTrendChart();
     document.getElementById("profile-drawer").classList.add("open");
   }

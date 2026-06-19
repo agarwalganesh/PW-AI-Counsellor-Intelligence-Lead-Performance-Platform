@@ -151,13 +151,28 @@ When uploading an Excel file with multiple sheets:
 
 ### 14. 🔍 Global Filters (Applied Across All Views)
 - **Date Range Picker**: From / To date selectors
-- **Month Dropdown**: Filter by April / May / June / All Months
+- **Month Dropdown**: Filter dynamically by available months in dataset
 - **Days Dropdown**: Last 7 Days / Last 30 Days / All Days
 - **Manager Dropdown**: Filter entire dashboard to one manager's team
 - **Team Lead Dropdown**: Filter to one TL's counsellors
 - **Campaign Dropdown**: Filter by FY26 / FY27 / CJR
 
 All filters persist across page navigation via **LocalStorage state preservation**.
+
+---
+
+### 15. ⚙️ Custom Financial Settings Panel
+Managers can configure operational margins variables directly in the UI settings panel:
+- **Course Price** (default: ₹25,000)
+- **Dialed Call Cost** (default: ₹0.50/call)
+- **Daily Salary** (default: ₹1,200/day)
+
+Updates are preserved in **LocalStorage** and trigger an instant recalculation of revenue, margin, and burn rate KPIs across all dashboards.
+
+---
+
+### 16. ⚠️ Simulated Hourly Warnings
+Added visual disclaimer alerts (`⚠️ Hourly calling distribution pattern is deterministically simulated`) on the Hourly calling trend chart inside the profile drawer to clarify simulated data distributions.
 
 ---
 
@@ -278,16 +293,17 @@ Case 3 — Skill Gap (Critical):
 
 ### 7. Gross Revenue & Operational Margin
 ```
-Gross Revenue    = Total Admissions × ₹25,000
+Gross Revenue    = Total Admissions × Course Price (default: ₹25,000)
 Total Discounts  = Counsellor Discount + Manager Discount + Other Discount
 Net Revenue      = Gross Revenue − Total Discounts
 
 Active Days      = Present Days + (Half Days × 0.5)
-Operational Burn = (Total Dials × ₹0.50) + (Active Days × ₹1,200)
+Operational Burn = (Total Dials × Dialled Call Cost, default: ₹0.50) + (Active Days × Agent Daily Salary, default: ₹1,200)
 
 Gross Margin     = Net Revenue − Operational Burn
 Gross Margin %   = (Gross Margin ÷ Net Revenue) × 100
 ```
+> *Note: Financial constants (Course Price, Call Cost, Daily Salary) are fully customizable via the sidebar Settings modal.*
 
 ### 8. Statistical Z-Test (Team Comparison)
 ```
@@ -397,6 +413,12 @@ Tests validate: mock data generation, Excel date serialization, risk score bound
 | 2 | Rows being silently dropped when `Date` column missing | Filter now only requires email; date-less rows are kept |
 | 3 | Auto email detection when column name is custom | Scans all columns for any `@` value as fallback |
 | 4 | AVG DAILY DIALS showing admission count instead of calls | Fixed formula: `Total Dials ÷ Unique Working Days` |
-| 5 | Browser serving stale cached JS after code updates | JS files now versioned (`?v=3`), server started with `-c-1` (no cache) |
+| 5 | Browser serving stale cached JS after code updates | JS files now versioned (`?v=4`), server started with `-c-1` (no cache) |
 | 6 | `Reporting Date`, `Report Date`, `Day` columns not parsed | Added 6 more date column name variants |
 | 7 | `TL Name`, `TL` column not recognized for Team Lead | Added TL column variants to parser |
+| 8 | Lowercase email addresses displayed in dropdowns / tables | Added `toTitleCase` helper with email parsing: strips domain names (e.g. `@pw.live`), replaces delimiters (`.`, `_`, `-`) with spaces, and capitalizes to proper names. |
+| 9 | Target miss projections incorrect on custom date ranges | Replaced `latestDate.getDate()` math with range calendar span diff math (`latestDate - earliestDate + 1`). |
+| 10 | Last 7/30 days filters displaying 0 rows on historical data | Changed anchor date calculation from actual system today to maximum date in the dataset. |
+| 11 | Closing Power competency normalized to unrealistic 18% | Adjusted closing power normalization benchmark to realistic 10%. |
+| 12 | Financial constants hardcoded in Javascript class | Added Financial Settings modal UI to edit Course Price, Dial Cost, and Salary Daily, persisting state to localStorage. |
+| 13 | Simulated hourly data unflagged in drawer view | Added visual disclaimer alerts when viewing simulated hourly calling charts. |

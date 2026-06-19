@@ -18,6 +18,7 @@
     
     <!-- SIDEBAR NAVIGATION -->
     <aside class="sidebar">
+      <button id="mobile-sidebar-close-btn" class="mobile-sidebar-close" aria-label="Close Navigation">&times;</button>
       <div class="sidebar-brand">
         <div class="brand-icon">Ω</div>
         <div class="brand-name">Counsellor.AI</div>
@@ -78,21 +79,36 @@
             AI Recommendations
           </a>
         </li>
+        <li class="sidebar-nav-item" style="margin-top: 20px; border-top: 1px solid var(--surface-border); padding-top: 12px;">
+          <a class="sidebar-nav-link" id="settings-toggle-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            Financial Settings
+          </a>
+        </li>
       </ul>
       
       <!-- DATA UPLOADER FOOTER -->
       <div class="sidebar-footer">
         <div class="file-upload-container">
-          <label for="excel-file-input" class="upload-btn-label">
+          <label for="excel-file-input" class="upload-btn-label" title="Select one or multiple Excel files — they will be merged automatically">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            Upload Excel Sheet
+            Upload Excel Files
           </label>
-          <input type="file" id="excel-file-input" accept=".xlsx, .xls, .csv">
-          
+          <!-- multiple attribute allows selecting April + May together -->
+          <input type="file" id="excel-file-input" accept=".xlsx, .xls, .csv" multiple>
+
+          <!-- Append More Data button (hidden until first file loaded) -->
+          <label for="excel-append-input" class="upload-btn-label" id="append-file-btn" title="Add more Excel files and merge with current data" style="display:none; margin-top:6px; background: rgba(99,179,237,0.10); border-color: var(--accent-info); color: var(--accent-info); font-size:0.72rem;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Append More Data
+          </label>
+          <input type="file" id="excel-append-input" accept=".xlsx, .xls, .csv" multiple style="display:none;">
+
           <div class="dataset-badge">
             <div class="dataset-indicator" id="data-status-dot"></div>
             <span id="data-status-text">Using Mock Dataset</span>
           </div>
+          <div id="loaded-files-list" style="font-size:0.65rem; color:var(--text-muted); margin-top:4px; line-height:1.5;"></div>
         </div>
       </div>
     </aside>
@@ -173,8 +189,9 @@
         <div class="no-data-overlay" id="upload-prompt-overlay" style="display:flex;">
           <div class="no-data-icon">📁</div>
           <h2 class="no-data-title">No Excel Sheet Active</h2>
-          <p class="no-data-desc">Please upload a counsellor performance Excel sheet (like April or May data) to begin dashboard analysis.</p>
-          <label for="excel-file-input" class="no-data-btn" style="cursor: pointer; text-align: center; display: inline-block;">Upload Excel File</label>
+          <p class="no-data-desc">Upload one or <strong>multiple Excel files</strong> — April &amp; May data will be <strong>auto-merged</strong> into a single unified dataset.</p>
+          <label for="excel-file-input" class="no-data-btn" style="cursor: pointer; text-align: center; display: inline-block;">📂 Upload Excel File(s)</label>
+          <p style="font-size:0.75rem; color:var(--text-muted); margin-top:8px;">Tip: Hold Ctrl/Cmd to select multiple files at once</p>
         </div>
 
         <!-- 1. EXECUTIVE DASHBOARD -->
@@ -847,6 +864,41 @@
     </div>
   </div>
 
+  <!-- FINANCIAL CONFIGURATION SETTINGS MODAL -->
+  <div class="modal-overlay" id="settings-modal" style="display: none;">
+    <div class="modal-content animate-fade-in" style="max-width: 450px;">
+      <div class="modal-header">
+        <h3 class="modal-title" style="display: flex; align-items: center; gap: 8px;">
+          <svg viewBox="0 0 24 24" width="20" height="20" stroke="var(--accent-info)" stroke-width="2" fill="none" style="vertical-align: middle;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Financial Constants Settings
+        </h3>
+        <button class="modal-close-btn" id="close-settings-modal">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 20px 0;">
+        <p class="modal-instruction" style="margin-bottom: 15px; font-size: 0.85rem; color: var(--text-secondary);">Configure the default values used for financial metrics and operational margins calculations:</p>
+        
+        <div style="display: flex; flex-direction: column; gap: 14px;">
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Course Price (INR):</label>
+            <input type="number" id="setting-course-price" class="filter-select" style="width: 100%; margin: 0;" min="1">
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Dialed Call Cost (INR/call):</label>
+            <input type="number" id="setting-dial-cost" class="filter-select" style="width: 100%; margin: 0;" step="0.05" min="0">
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Daily Salaries (INR/day):</label>
+            <input type="number" id="setting-salary-daily" class="filter-select" style="width: 100%; margin: 0;" min="0">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="export-btn" id="btn-cancel-settings">Cancel</button>
+        <button class="upload-btn-label" id="btn-save-settings" style="width: auto; margin-top: 0; padding: 10px 20px;">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
   <!-- LOAD THE SCRIPTS IN LOGICAL SEQUENCE -->
   <script src="mock-data.js?v=4"></script>
   <script src="data-processor.js?v=4"></script>
@@ -955,6 +1007,9 @@
           </div>
           <div class="chart-container" style="height:170px; position:relative;">
             <canvas id="drawer-trend-chart"></canvas>
+          </div>
+          <div id="drawer-hourly-simulated-warning" style="display:none; font-size:0.65rem; color:var(--accent-warning); margin-top:8px; text-align:center; font-style:italic; line-height: 1.3;">
+            ⚠️ Hourly calling distribution pattern is deterministically simulated.
           </div>
         </div>
       </div>

@@ -56,7 +56,7 @@ class DataProcessor {
     scope.filteredData = data;
   }
 
-  // Load dataset into memory
+  // Load dataset into memory (replaces existing data)
   loadDataset(data) {
     // Standardize mapping & enforce absolute state isolation
     const cleaned = data
@@ -67,16 +67,189 @@ class DataProcessor {
     // Assign copy to global raw dataset
     this.rawDataset = JSON.parse(JSON.stringify(cleaned));
 
-    // ✅ FIX: Always reset date/time filters after new data upload
-    // Stale filters from previous sessions cause rows to be silently hidden
+    // ✅ FIX: Reset ALL filters after new data upload
+    // Stale filters (manager/TL/campaign) from previous localStorage sessions
+    // cause rows to be silently hidden if the new file has different values.
     this.filters.startDate = "";
     this.filters.endDate = "";
     this.filters.month = "all";
     this.filters.daysLimit = "all";
-    // NOTE: We keep teamLead/manager/campaign/band/status filters as-is (user intentional)
+    this.filters.teamLead = "all";
+    this.filters.manager = "all";
+    this.filters.campaign = "all";
+    this.filters.band = "all";
+    this.filters.status = "all";
+    this.filters.counsellorEmail = "all";
+
+    // ✅ FIX: Clear stale portal state from localStorage so finishInit
+    // doesn't re-apply old manager/TL filters from a previous session
+    try {
+      localStorage.removeItem("ai_counsellor_portal_state");
+    } catch(err) { /* ignore */ }
     
     this.updateMetadata();
     this.applyDashboardFilters();
+  }
+
+  // Append/merge new data into existing dataset (for multi-file loading)
+  appendDataset(data) {
+    const cleaned = data
+      .map(row => this.cleanRow(row))
+      .filter(row => row && row["Counselor Email"]);
+
+    if (cleaned.length === 0) return 0;
+
+    // Merge: deduplicate by counselor email + date combination
+    const existingKeys = new Set(
+      this.rawDataset.map(r => `${r["Counselor Email"]}|${r["Date"]}`)
+    );
+
+    let addedCount = 0;
+    const newRows = [];
+    cleaned.forEach(row => {
+      const key = `${row["Counselor Email"]}|${row["Date"]}`;
+      // For rows without a Date, always include (they won't collide)
+      if (!row["Date"] || !existingKeys.has(key)) {
+        newRows.push(row);
+        if (row["Date"]) existingKeys.add(key);
+        addedCount++;
+      }
+    });
+
+    // Merge into existing raw dataset
+    this.rawDataset = JSON.parse(JSON.stringify([...this.rawDataset, ...newRows]));
+    
+    this.updateMetadata();
+    this.applyDashboardFilters();
+    return addedCount;
+  }
+
+  // Parse multiple Excel files and merge them all into one dataset
+  // files: array of File objects, callback(err, { totalRows, fileResults })
+  parseMultipleFiles(files, callback) {
+    const fileArray = Array.from(files);
+    let allRows = [];
+    const fileResults = [];
+    let processedCount = 0;
+
+    const processNext = (index) => {
+      if (index >= fileArray.length) {
+        // All files parsed — load merged dataset
+        this.loadDataset(allRows);
+        try {
+          localStorage.setItem("ai_counsellor_dataset", JSON.stringify(this.rawDataset));
+        } catch(err) {
+          console.warn("Could not save to LocalStorage (data size limit exceeded).", err);
+        }
+        callback(null, { totalRows: this.rawDataset.length, fileResults });
+        return;
+      }
+
+      const file = fileArray[index];
+      const reader = new FileReader();
+
+      reader.onload = (e) => {
+        try {
+          const data = e.target.result;
+          const workbook = XLSX.read(data, { type: "array", cellDates: true });
+          this.currentWorkbook = workbook; // keep last workbook for sheet selector
+
+          let fileRows = [];
+          workbook.SheetNames.forEach(sheetName => {
+            const worksheet = workbook.Sheets[sheetName];
+            const json = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+            fileRows = fileRows.concat(json);
+          });
+
+          fileResults.push({ name: file.name, rows: fileRows.length, sheets: workbook.SheetNames.length });
+          allRows = allRows.concat(fileRows);
+        } catch(err) {
+          fileResults.push({ name: file.name, rows: 0, error: err.message });
+        }
+        processNext(index + 1);
+      };
+
+      reader.onerror = () => {
+        fileResults.push({ name: file.name, rows: 0, error: "File read error" });
+        processNext(index + 1);
+      };
+
+      reader.readAsArrayBuffer(file);
+    };
+
+    processNext(0);
+  }
+
+  // Append multiple Excel files to existing dataset
+  // files: array of File objects, callback(err, { addedRows, fileResults })
+  appendMultipleFiles(files, callback) {
+    const fileArray = Array.from(files);
+    let allNewRows = [];
+    const fileResults = [];
+
+    const processNext = (index) => {
+      if (index >= fileArray.length) {
+        // All parsed — append merged rows
+        const addedRows = this.appendDataset(allNewRows);
+        try {
+          localStorage.setItem("ai_counsellor_dataset", JSON.stringify(this.rawDataset));
+        } catch(err) {
+          console.warn("Could not save to LocalStorage (data size limit exceeded).", err);
+        }
+        callback(null, { addedRows, totalRows: this.rawDataset.length, fileResults });
+        return;
+      }
+
+      const file = fileArray[index];
+      const reader = new FileReader();
+
+      reader.onload = (e) => {
+        try {
+          const data = e.target.result;
+          const workbook = XLSX.read(data, { type: "array", cellDates: true });
+          let fileRows = [];
+          workbook.SheetNames.forEach(sheetName => {
+            const worksheet = workbook.Sheets[sheetName];
+            const json = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+            fileRows = fileRows.concat(json);
+          });
+          fileResults.push({ name: file.name, rows: fileRows.length });
+          allNewRows = allNewRows.concat(fileRows);
+        } catch(err) {
+          fileResults.push({ name: file.name, rows: 0, error: err.message });
+        }
+        processNext(index + 1);
+      };
+
+      reader.onerror = () => {
+        fileResults.push({ name: file.name, rows: 0, error: "File read error" });
+        processNext(index + 1);
+      };
+
+      reader.readAsArrayBuffer(file);
+    };
+
+    processNext(0);
+  }
+
+  normalizeNumber(value) {
+    if (value === null || value === undefined || value === "") return NaN;
+    if (typeof value === "number") return value;
+    const text = String(value).trim().replace(/,/g, "").replace(/\s+/g, "");
+    if (text.endsWith("%")) {
+      return parseFloat(text.slice(0, -1));
+    }
+    return parseFloat(text);
+  }
+
+  parseIntegerField(value, fallback = 0) {
+    const parsed = Math.trunc(this.normalizeNumber(value));
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  parseFloatField(value, fallback = 0.0) {
+    const parsed = this.normalizeNumber(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
   }
 
   // Helper to convert Excel date formats safely
@@ -167,51 +340,51 @@ class DataProcessor {
     result["Attendance"] = getStringVal("Attendance") || getStringVal("attendance") || "Present";
 
     // Explicit Typecasting to prevent calculation failures as per Guideline 2
-    result["Dialled Calls"] = parseInt(row["Dialled Calls"]) || parseInt(row["dialled_calls"]) || 0;
+    result["Dialled Calls"] = this.parseIntegerField(row["Dialled Calls"] || row["dialled_calls"] || row["Dialled calls"]);
     
-    const connVal = parseInt(row["Connected Calls"]) || parseInt(row["Connected calls"]) || parseInt(row["connected_calls"]) || 0;
+    const connVal = this.parseIntegerField(row["Connected Calls"] || row["Connected calls"] || row["connected_calls"] || row["Connected Calls "]);
     result["Connected Calls"] = connVal;
     result["Connected calls"] = connVal; // support both casing variants
 
-    const effVal = parseInt(row["Effective Calls"]) || parseInt(row["Effective calls"]) || parseInt(row["effective_calls"]) || 0;
+    const effVal = this.parseIntegerField(row["Effective Calls"] || row["Effective calls"] || row["effective_calls"] || row["Effective Calls "]);
     result["Effective Calls"] = effVal;
     result["Effective calls"] = effVal; // support both casing variants
 
-    result["Target"] = parseInt(row["Target"]) || parseInt(row["target"]) || 30;
+    result["Target"] = this.parseIntegerField(row["Target"] || row["target"] || row["Row Target"] || row["Daily Target"] || 30);
 
-    const admVal = parseInt(row["Total Admissions"]) || parseInt(row["Total admissions"]) || parseInt(row["total_admissions"]) || parseInt(row["Total Adm"]) || 0;
+    const admVal = this.parseIntegerField(row["Total Admissions"] || row["Total admissions"] || row["total_admissions"] || row["Total Adm"] || row["Admissions"]);
     result["Total Admissions"] = admVal;
     result["Total admissions"] = admVal; // support both casing variants
     result["Total Adm"] = admVal;
 
-    const sharedVal = parseInt(row["Shared Admissions"]) || parseInt(row["Shared admissions"]) || parseInt(row["shared_admissions"]) || 0;
+    const sharedVal = this.parseIntegerField(row["Shared Admissions"] || row["Shared admissions"] || row["shared_admissions"] || row["Shared Admission"]);
     result["Shared Admissions"] = sharedVal;
     result["Shared admissions"] = sharedVal; // support both casing variants
 
-    result["Shared admissions Form Filled"] = parseInt(row["Shared admissions Form Filled"]) || parseInt(row["Shared Admissions Form Filled"]) || 0;
-    result["Additional Adm"] = parseInt(row["Additional Adm"]) || parseInt(row["Additional Admissions"]) || 0;
-    result["Penalty"] = parseInt(row["Penalty"]) || 0;
-    result["Total Adm(form Filled)"] = parseInt(row["Total Adm(form Filled)"]) || parseInt(row["Total Admissions Form Filled"]) || 0;
-    result["EMI Paid"] = parseInt(row["EMI Paid"]) || parseInt(row["EMI paid"]) || 0;
+    result["Shared admissions Form Filled"] = this.parseIntegerField(row["Shared admissions Form Filled"] || row["Shared Admissions Form Filled"] || row["Shared adm Form Filled"]);
+    result["Additional Adm"] = this.parseIntegerField(row["Additional Adm"] || row["Additional Admissions"] || row["Additional Admissions "]);
+    result["Penalty"] = this.parseIntegerField(row["Penalty"] || row["penalty"]);
+    result["Total Adm(form Filled)"] = this.parseIntegerField(row["Total Adm(form Filled)"] || row["Total Admissions Form Filled"] || row["Total Adm Form Filled"]);
+    result["EMI Paid"] = this.parseIntegerField(row["EMI Paid"] || row["EMI paid"] || row["EMI"]);
     
-    const spotVal = parseInt(row["Full Payment On Spot"]) || parseInt(row["Full Payment On spot"]) || parseInt(row["full_payment_on_spot"]) || 0;
+    const spotVal = this.parseIntegerField(row["Full Payment On Spot"] || row["Full Payment On spot"] || row["full_payment_on_spot"] || row["Spot Payment"]);
     result["Full Payment On Spot"] = spotVal;
     result["Full Payment On spot"] = spotVal; // support both casings
 
-    result["Auto Dial"] = parseInt(row["Auto Dial"]) || parseInt(row["Auto dial"]) || 0;
-    result["Manual Dial"] = parseInt(row["Manual Dial"]) || parseInt(row["Manual dial"]) || 0;
-    result["AI"] = parseInt(row["AI"]) || parseInt(row["ai"]) || 0;
-    result["FY 27"] = parseInt(row["FY 27"]) || parseInt(row["FY27"]) || 0;
-    result["FY 26"] = parseInt(row["FY 26"]) || parseInt(row["FY26"]) || 0;
-    result["CJR"] = parseInt(row["CJR"]) || parseInt(row["cjr"]) || 0;
+    result["Auto Dial"] = this.parseIntegerField(row["Auto Dial"] || row["Auto dial"] || row["auto_dial"]);
+    result["Manual Dial"] = this.parseIntegerField(row["Manual Dial"] || row["Manual dial"] || row["manual_dial"]);
+    result["AI"] = this.parseIntegerField(row["AI"] || row["ai"] || row["Artificial Intelligence"]);
+    result["FY 27"] = this.parseIntegerField(row["FY 27"] || row["FY27"] || row["FY_27"]);
+    result["FY 26"] = this.parseIntegerField(row["FY 26"] || row["FY26"] || row["FY_26"]);
+    result["CJR"] = this.parseIntegerField(row["CJR"] || row["cjr"] || row["CJR "]);
     
-    result["Counsellor discount"] = parseInt(row["Counsellor discount"]) || parseInt(row["Counsellor Discount"]) || 0;
-    result["Counsellor discount-FY 27"] = parseInt(row["Counsellor discount-FY 27"]) || 0;
-    result["Manager discount"] = parseInt(row["Manager discount"]) || parseInt(row["Manager Discount"]) || 0;
-    result["Other Discount"] = parseInt(row["Other Discount"]) || parseInt(row["Other discount"]) || 0;
-    result["No. of days"] = parseInt(row["No. of days"]) || parseInt(row["Number of days"]) || parseInt(row["No. of Days"]) || 0;
-    result["VP Retention"] = parseInt(row["VP Retention"]) || 0;
-    result["CC/FT/Board"] = parseInt(row["CC/FT/Board"]) || 0;
+    result["Counsellor discount"] = this.parseIntegerField(row["Counsellor discount"] || row["Counsellor Discount"] || row["Counsellor_Discount"]);
+    result["Counsellor discount-FY 27"] = this.parseIntegerField(row["Counsellor discount-FY 27"] || row["Counsellor discount FY 27"] || row["Counsellor discount-FY27"]);
+    result["Manager discount"] = this.parseIntegerField(row["Manager discount"] || row["Manager Discount"] || row["Manager_Discount"]);
+    result["Other Discount"] = this.parseIntegerField(row["Other Discount"] || row["Other discount"] || row["Other_Discount"]);
+    result["No. of days"] = this.parseIntegerField(row["No. of days"] || row["Number of days"] || row["No. of Days"] || row["Days Count"]);
+    result["VP Retention"] = this.parseIntegerField(row["VP Retention"] || row["VP Retention "] || row["VP_Retention"]);
+    result["CC/FT/Board"] = this.parseIntegerField(row["CC/FT/Board"] || row["CC/FT/Board "] || row["Board Count"]);
 
     // Float Columns — Talktime: try all known column name variants
     const talktimeHoursRaw =
@@ -220,24 +393,25 @@ class DataProcessor {
       row["Talktime(hours)"] ??
       row["Talktime (Hours)"] ??
       row["talktime_hours"] ??
+      row["Talk Time Hours"] ??
       null;
 
     if (talktimeHoursRaw !== undefined && talktimeHoursRaw !== null && talktimeHoursRaw !== "") {
-      result["Talktime (In hours)"] = parseFloat(talktimeHoursRaw) || 0.0;
+      result["Talktime (In hours)"] = this.parseFloatField(talktimeHoursRaw, 0.0);
     } else {
       // Try seconds-based columns and convert to hours
       const talktimeSeconds =
-        parseFloat(row["Talktime"]) ||
-        parseFloat(row["Talk Time"]) ||
-        parseFloat(row["Talk time"]) ||
-        parseFloat(row["talktime"]) ||
-        parseFloat(row["TalkTime"]) || 0.0;
+        this.parseFloatField(row["Talktime"]) ||
+        this.parseFloatField(row["Talk Time"]) ||
+        this.parseFloatField(row["Talk time"]) ||
+        this.parseFloatField(row["talktime"]) ||
+        this.parseFloatField(row["TalkTime"]);
       result["Talktime (In hours)"] = talktimeSeconds > 0 ? parseFloat((talktimeSeconds / 3600).toFixed(4)) : 0.0;
     }
 
-    const conversionPctRaw = row["Conversion %"];
+    const conversionPctRaw = row["Conversion %"] ?? row["Conversion"] ?? row["Conv %"] ?? row["Conversion Rate"];
     if (conversionPctRaw !== undefined && conversionPctRaw !== null && conversionPctRaw !== "") {
-      const val = parseFloat(conversionPctRaw) || 0.0;
+      const val = this.parseFloatField(conversionPctRaw, 0.0);
       // If Excel stores fraction (e.g. 0.0339 representing 3.39%)
       if (connVal > 0 && Math.abs(val - (admVal / connVal)) < 0.005) {
         result["Conversion %"] = parseFloat(((admVal / connVal) * 100).toFixed(2));
@@ -283,7 +457,7 @@ class DataProcessor {
     reader.onload = (e) => {
       try {
         const data = e.target.result;
-        const workbook = XLSX.read(data, { type: "binary", cellDates: true });
+        const workbook = XLSX.read(data, { type: "array", cellDates: true });
         this.currentWorkbook = workbook;
         
         const sheetNames = workbook.SheetNames;
@@ -319,7 +493,7 @@ class DataProcessor {
     reader.onerror = () => {
       callback(new Error("File reading error."));
     };
-    reader.readAsBinaryString(file);
+    reader.readAsArrayBuffer(file);
   }
 
   // Load and merge multiple sheets from current workbook
@@ -373,8 +547,17 @@ class DataProcessor {
   applyDashboardFilters() {
     // ✅ FIX: Dynamic anchor date — always use TODAY, not a hardcoded date
     // Hardcoded date caused "Last 7 Days" / "Last 30 Days" filter to show 0 rows for non-June data
-    const today = new Date();
-    const anchorDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    let anchorDate = null;
+    if (masterData && masterData.length > 0) {
+      const dates = masterData.map(r => r["Date"]).filter(Boolean).sort();
+      if (dates.length > 0) {
+        anchorDate = new Date(dates[dates.length - 1] + "T00:00:00");
+      }
+    }
+    if (!anchorDate || isNaN(anchorDate.getTime())) {
+      const today = new Date();
+      anchorDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    }
     const scope = (typeof globalThis !== "undefined") ? globalThis : ((typeof window !== "undefined") ? window : global);
 
     // Filter masterData into a fresh filteredData array (no mutation of raw data)
@@ -463,9 +646,19 @@ class DataProcessor {
     const minDate = dates[0] || "";
     const maxDate = dates[dates.length - 1] || "";
 
+    const monthsSet = new Set();
+    dates.forEach(d => {
+      const parts = d.split("-");
+      if (parts.length >= 2) {
+        monthsSet.add(parts[1]); // e.g. "06" for "2026-06-17"
+      }
+    });
+    const monthsList = Array.from(monthsSet).sort();
+
     return {
       minDate,
       maxDate,
+      monthsList,
       counsellors: this.counsellorsList,
       teamLeads: [...new Set(this.rawDataset.map(r => r["Team Lead"]))].filter(Boolean).sort(),
       managers: [...new Set(this.rawDataset.map(r => r["Manager"]))].filter(Boolean).sort(),
@@ -532,15 +725,8 @@ class DataProcessor {
     counts.uniqueCounsellors.forEach(email => {
       const agentRows = dataset.filter(r => r["Counselor Email"] === email);
       if (agentRows.length > 0) {
-        const sumTarget = agentRows.reduce((sum, r) => sum + (r["Target"] || 0), 0);
-        const avgTarget = sumTarget / agentRows.length;
-        if (avgTarget <= 5) {
-          // If average row target is small (<= 5), treat as a daily target and sum them
-          aggregatedTarget += sumTarget;
-        } else {
-          // If average row target is large (> 5), treat as a repeated overall target and take average
-          aggregatedTarget += avgTarget;
-        }
+        const totalAgentTarget = agentRows.reduce((sum, r) => sum + (r["Target"] || 0), 0);
+        aggregatedTarget += totalAgentTarget;
       }
     });
     counts.totalTarget = Math.round(aggregatedTarget) || 30;
@@ -665,6 +851,11 @@ class DataProcessor {
         if (state.sortDescriptors) {
           this.sortDescriptors = state.sortDescriptors;
         }
+        if (state.financials) {
+          this.COURSE_PRICE = state.financials.coursePrice ?? 25000;
+          this.DIAL_COST = state.financials.dialCost ?? 0.50;
+          this.SALARY_DAILY = state.financials.salaryDaily ?? 1200;
+        }
       }
     } catch (err) {
       console.warn("Could not load state from LocalStorage", err);
@@ -675,7 +866,12 @@ class DataProcessor {
     try {
       const state = {
         filters: this.filters,
-        sortDescriptors: this.sortDescriptors
+        sortDescriptors: this.sortDescriptors,
+        financials: {
+          coursePrice: this.COURSE_PRICE,
+          dialCost: this.DIAL_COST,
+          salaryDaily: this.SALARY_DAILY
+        }
       };
       localStorage.setItem("ai_counsellor_portal_state", JSON.stringify(state));
     } catch (err) {

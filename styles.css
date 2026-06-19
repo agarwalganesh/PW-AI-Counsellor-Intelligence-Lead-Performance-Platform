@@ -1760,8 +1760,16 @@ button, input, select, textarea {
 
 .sort-icon::after {
   content: ' ↕';
-  opacity: 0.3;
+  opacity: 0.35;
   font-size: 0.75rem;
+  margin-left: 4px;
+  color: var(--text-secondary);
+  transition: var(--transition-smooth);
+}
+
+.sortable-header:hover .sort-icon::after {
+  opacity: 0.8;
+  color: var(--text-primary);
 }
 
 .sortable-header[data-dir="asc"] .sort-icon::after {
@@ -1784,6 +1792,32 @@ button, input, select, textarea {
 
 .alert-banner.critical {
   box-shadow: 0 0 15px rgba(230, 77, 102, 0.1);
+}
+
+/* Mobile sidebar close button styles */
+.mobile-sidebar-close {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-sidebar-close {
+    display: block;
+    position: absolute;
+    top: 15px;
+    right: 20px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 2.2rem;
+    font-weight: 300;
+    cursor: pointer;
+    z-index: 1001;
+    line-height: 1;
+    transition: var(--transition-smooth);
+  }
+  .mobile-sidebar-close:hover {
+    color: var(--accent-critical);
+  }
 }
 
 

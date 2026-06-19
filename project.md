@@ -235,7 +235,7 @@ window.ChartingEngine  // single instance
 Dials          → benchmark 80/day   → score = (avgDials ÷ 80) × 100
 Reachability   → benchmark 50%      → score = (connectRate ÷ 0.50) × 100
 Engagement     → benchmark 100%     → score = effectiveRatio
-Closing Power  → benchmark 18% ⚠️  → score = (convPct ÷ 18) × 100  [Too high!]
+Closing Power  → benchmark 10%      → score = (convPct ÷ 10) × 100  [Adjusted to realistic 10%]
 Attendance     → benchmark 100%     → score = attendanceRate
 Talktime       → benchmark 240s     → score = (avgTalktime ÷ 240) × 100
 ```
@@ -366,7 +366,7 @@ let insightsInterval = null;        // ticker interval handle
 
 #### `normalizeCounsellorDimensions(c)`
 - Radar ke liye 6 metrics ko 0-100 scale pe normalize karta hai
-- Benchmarks: Dials=80, Reachability=50%, Engagement=100%, Closing=18%, Attendance=100%, Talktime=240s
+- Benchmarks: Dials=80, Reachability=50%, Engagement=100%, Closing=10%, Attendance=100%, Talktime=240s
 
 #### `generateAISummaryText(c, risk, diagnostics, predictor)`
 - Green risk → positive summary with targets
