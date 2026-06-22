@@ -13,6 +13,44 @@ document.addEventListener("DOMContentLoaded", () => {
   let activeCounsellorEmail = "";
   let insightsInterval = null;
   let currentInsightIndex = 0;
+  let privacyMode = false;
+
+  function escapeHTML(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function maskedEmail(email) {
+    if (!privacyMode || !email) return email || "";
+    const [name, domain] = String(email).split("@");
+    return `${name.slice(0, 2)}***@${domain || "hidden"}`;
+  }
+
+  function displayName(c) {
+    if (!privacyMode) return c.name || toTitleCase(c.email || "");
+    return `Counsellor ${String(c.email || c.name || "X").slice(0, 3).toUpperCase()}`;
+  }
+
+  function renderStorageStatus() {
+    const select = document.getElementById("storage-mode-select");
+    if (select) select.value = dp.storageMode || "session";
+  }
+
+  function renderFileList(fileResults, totalRows, mode = "replace") {
+    const listEl = document.getElementById("loaded-files-list");
+    if (!listEl) return;
+    const rows = fileResults.map(f => {
+      const icon = mode === "append" ? "+" : "File";
+      const detail = f.error ? `warning ${f.error}` : `${(f.rows || 0).toLocaleString()} rows`;
+      return `${icon}: ${f.name} - ${detail}`;
+    });
+    rows.push(`Total: ${totalRows.toLocaleString()} records`);
+    listEl.textContent = rows.join("\n");
+  }
 
   function toTitleCase(str) {
     if (!str) return "";
@@ -78,6 +116,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Bind Event Listeners
     bindEvents();
+
   }
 
   function finishInit() {
@@ -102,6 +141,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     document.getElementById("filter-start-date").value = startDate;
     document.getElementById("filter-end-date").value = endDate;
+
+    // Set min/max bounds so the calendar only allows valid dates from the dataset
+    const startEl = document.getElementById("filter-start-date");
+    const endEl   = document.getElementById("filter-end-date");
+    startEl.min = options.minDate;
+    startEl.max = options.maxDate;
+    endEl.min   = options.minDate;
+    endEl.max   = options.maxDate;
     
     dp.setFilter("startDate", startDate);
     dp.setFilter("endDate", endDate);
@@ -187,10 +234,12 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       monthSelect = document.getElementById("filter-month");
       
-      // Bind event listener to trigger unified filter apply
+      // Bind event listener — delegation in bindEvents handles cross-filter reset & re-render
       monthSelect.addEventListener("change", (e) => {
         dp.setFilter("month", e.target.value);
-        onFiltersChanged();
+        // Note: onFiltersChanged() is intentionally NOT called here.
+        // The event delegation listener on .header-filters in bindEvents() handles
+        // resetting conflicting filters AND calling onFiltersChanged().
       });
     }
 
@@ -204,8 +253,10 @@ document.addEventListener("DOMContentLoaded", () => {
     monthSelect.innerHTML = '<option value="all">All Months</option>';
     if (opts.monthsList) {
       opts.monthsList.forEach(m => {
-        const label = monthNames[m] || `Month ${m}`;
-        monthSelect.innerHTML += `<option value="${m}">${label}</option>`;
+        const monthCode = m.includes("-") ? m.split("-")[1] : m;
+        const yearCode = m.includes("-") ? m.split("-")[0] : "";
+        const label = `${monthNames[monthCode] || `Month ${monthCode}`}${yearCode ? ` ${yearCode}` : ""}`;
+        monthSelect.innerHTML += `<option value="${escapeHTML(m)}">${escapeHTML(label)}</option>`;
       });
     }
     if (Array.from(monthSelect.options).some(o => o.value === prevMonthVal)) {
@@ -224,7 +275,9 @@ document.addEventListener("DOMContentLoaded", () => {
         <select id="filter-days" class="filter-select">
           <option value="all">All Days</option>
           <option value="7">Last 7 Days</option>
+          <option value="15">Last 15 Days</option>
           <option value="30">Last 30 Days</option>
+          <option value="60">Last 60 Days</option>
         </select>
       `;
       const headerFilters = document.querySelector(".header-filters");
@@ -234,27 +287,79 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       daysSelect = document.getElementById("filter-days");
       
-      // Bind event listener to trigger unified filter apply
+      // Bind event listener — delegation in bindEvents handles cross-filter reset & re-render
       daysSelect.addEventListener("change", (e) => {
         dp.setFilter("daysLimit", e.target.value);
-        onFiltersChanged();
+        // Note: onFiltersChanged() is intentionally NOT called here.
+        // The event delegation listener on .header-filters in bindEvents() handles
+        // resetting conflicting filters AND calling onFiltersChanged().
       });
     }
 
-    // Preserve first option ("All")
-    mgrSelect.innerHTML = '<option value="all">All Managers</option>';
-    tlSelect.innerHTML = '<option value="all">All Leads</option>';
-    campSelect.innerHTML = '<option value="all">All Campaigns</option>';
+    // Preserve currently selected values before rebuilding
+    const prevMgrVal  = mgrSelect.value;
+    const prevTlVal   = tlSelect.value;
+    const prevCampVal = campSelect.value;
 
+    // Rebuild Manager dropdown
+    mgrSelect.innerHTML = '<option value="all">All Managers</option>';
     opts.managers.forEach(m => {
-      mgrSelect.innerHTML += `<option value="${m}">${toTitleCase(m)}</option>`;
+      mgrSelect.innerHTML += `<option value="${escapeHTML(m)}">${escapeHTML(toTitleCase(m))}</option>`;
     });
-    opts.teamLeads.forEach(tl => {
-      tlSelect.innerHTML += `<option value="${tl}">${toTitleCase(tl)}</option>`;
+    // Restore manager selection
+    mgrSelect.value = (Array.from(mgrSelect.options).some(o => o.value === prevMgrVal)) ? prevMgrVal : "all";
+
+    // Cascade TL dropdown: if a manager is selected, only show TLs under that manager
+    const currentMgr = mgrSelect.value;
+    let filteredTLs;
+    if (currentMgr && currentMgr !== "all") {
+      // Only include TLs that appear in rows belonging to this manager
+      filteredTLs = [...new Set(
+        dp.rawDataset
+          .filter(r => (r["Manager"] || "").toLowerCase() === currentMgr.toLowerCase())
+          .map(r => r["Team Lead"])
+          .filter(Boolean)
+      )].sort();
+    } else {
+      filteredTLs = opts.teamLeads;
+    }
+    tlSelect.innerHTML = '<option value="all">All Leads</option>';
+    filteredTLs.forEach(tl => {
+      tlSelect.innerHTML += `<option value="${escapeHTML(tl)}">${escapeHTML(toTitleCase(tl))}</option>`;
     });
+    // Restore TL selection if it is still valid; otherwise reset to "all"
+    if (Array.from(tlSelect.options).some(o => o.value === prevTlVal)) {
+      tlSelect.value = prevTlVal;
+    } else {
+      tlSelect.value = "all";
+      dp.filters.teamLead = "all";
+    }
+
+    // Rebuild Campaign dropdown
+    campSelect.innerHTML = '<option value="all">All Campaigns</option>';
     opts.campaigns.forEach(c => {
-      campSelect.innerHTML += `<option value="${c}">${c}</option>`;
+      campSelect.innerHTML += `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`;
     });
+    // Restore campaign selection
+    campSelect.value = (Array.from(campSelect.options).some(o => o.value === prevCampVal)) ? prevCampVal : "all";
+
+    // Dynamically populate the Band dropdown from actual data values
+    // This fixes the "No records match criteria" bug caused by hardcoded options
+    // not matching the real Band values in the uploaded Excel file.
+    const bandSelect = document.getElementById("filter-performance-band");
+    if (bandSelect && opts.bands && opts.bands.length > 0) {
+      const prevBandVal = bandSelect.value;
+      bandSelect.innerHTML = '<option value="all">All Bands</option>';
+      opts.bands.forEach(b => {
+        bandSelect.innerHTML += `<option value="${escapeHTML(b)}">${escapeHTML(b)}</option>`;
+      });
+      // Restore previously selected value if it still exists in data
+      if (Array.from(bandSelect.options).some(o => o.value === prevBandVal)) {
+        bandSelect.value = prevBandVal;
+      } else {
+        bandSelect.value = "all";
+      }
+    }
   }
 
   function populateProfileSelector() {
@@ -267,7 +372,7 @@ document.addEventListener("DOMContentLoaded", () => {
       dp.counsellorsList;
 
     list.forEach(c => {
-      selector.innerHTML += `<option value="${c.email}">${c.name} (${c.email})</option>`;
+      selector.innerHTML += `<option value="${escapeHTML(c.email)}">${escapeHTML(displayName(c))} (${escapeHTML(maskedEmail(c.email))})</option>`;
     });
 
     if (list.length > 0) {
@@ -325,16 +430,57 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     // Global Filter Changes
+    // Helper to reset Month and Days dropdowns when custom date range is used
+    function clearTemporalSideFilters() {
+      const monthSel = document.getElementById("filter-month");
+      const daysSel  = document.getElementById("filter-days");
+      if (monthSel && monthSel.value !== "all") {
+        monthSel.value = "all";
+        dp.filters.month = "all";
+      }
+      if (daysSel && daysSel.value !== "all") {
+        daysSel.value = "all";
+        dp.filters.daysLimit = "all";
+      }
+    }
+
+    // Helper to reset custom date pickers back to full dataset range when Month/Days is used
+    function resetCustomDateRange() {
+      const opts = dp.getFiltersOptions();
+      const startEl = document.getElementById("filter-start-date");
+      const endEl   = document.getElementById("filter-end-date");
+      if (startEl) { startEl.value = opts.minDate; dp.filters.startDate = opts.minDate; }
+      if (endEl)   { endEl.value   = opts.maxDate; dp.filters.endDate   = opts.maxDate; }
+    }
+
     document.getElementById("filter-start-date").addEventListener("change", (e) => {
+      clearTemporalSideFilters();
       dp.setFilter("startDate", e.target.value);
+      // Ensure end date can't be before start date
+      const endEl = document.getElementById("filter-end-date");
+      if (endEl && endEl.value && endEl.value < e.target.value) {
+        endEl.value = e.target.value;
+        dp.filters.endDate = e.target.value;
+      }
+      if (endEl) endEl.min = e.target.value; // Keep end min in sync
       onFiltersChanged();
     });
     document.getElementById("filter-end-date").addEventListener("change", (e) => {
+      clearTemporalSideFilters();
       dp.setFilter("endDate", e.target.value);
+      // Ensure start date can't be after end date
+      const startEl = document.getElementById("filter-start-date");
+      if (startEl && startEl.value && startEl.value > e.target.value) {
+        startEl.value = e.target.value;
+        dp.filters.startDate = e.target.value;
+      }
+      if (startEl) startEl.max = e.target.value; // Keep start max in sync
       onFiltersChanged();
     });
     document.getElementById("filter-manager").addEventListener("change", (e) => {
       dp.setFilter("manager", e.target.value);
+      // Cascade: rebuild TL list filtered to this manager's TLs
+      populateFilterDropdowns();
       onFiltersChanged();
     });
     document.getElementById("filter-team-lead").addEventListener("change", (e) => {
@@ -345,6 +491,62 @@ document.addEventListener("DOMContentLoaded", () => {
       dp.setFilter("campaign", e.target.value);
       onFiltersChanged();
     });
+
+    // Month and Days dropdowns: reset conflicting filters and re-render
+    // (They are dynamically injected so we use event delegation on .header-filters)
+    document.querySelector(".header-filters").addEventListener("change", (e) => {
+      if (e.target.id === "filter-month") {
+        if (e.target.value !== "all") {
+          // When a specific month is chosen: clear custom date range and Days filter
+          resetCustomDateRange();
+          dp.filters.daysLimit = "all";
+          const daysSel = document.getElementById("filter-days");
+          if (daysSel) daysSel.value = "all";
+        }
+        onFiltersChanged();
+      }
+      if (e.target.id === "filter-days") {
+        if (e.target.value !== "all") {
+          // When a specific day range is chosen: clear custom date range and Month filter
+          resetCustomDateRange();
+          dp.filters.month = "all";
+          const monthSel = document.getElementById("filter-month");
+          if (monthSel) monthSel.value = "all";
+        }
+        onFiltersChanged();
+      }
+    });
+
+    const privacyToggle = document.getElementById("privacy-mode-toggle");
+    if (privacyToggle) {
+      privacyToggle.addEventListener("change", (e) => {
+        privacyMode = e.target.checked;
+        populateProfileSelector();
+        renderActiveView();
+      });
+    }
+
+    const storageModeSelect = document.getElementById("storage-mode-select");
+    if (storageModeSelect) {
+      storageModeSelect.value = dp.storageMode || "session";
+      storageModeSelect.addEventListener("change", (e) => {
+        dp.setStorageMode(e.target.value);
+        renderStorageStatus();
+      });
+    }
+
+    const clearDataBtn = document.getElementById("clear-uploaded-data-btn");
+    if (clearDataBtn) {
+      clearDataBtn.addEventListener("click", () => {
+        if (!confirm("Clear the uploaded dataset from this browser?")) return;
+        dp.clearStoredDataset();
+        document.getElementById("data-status-text").textContent = "No File Uploaded";
+        document.getElementById("loaded-files-list").textContent = "";
+        const uploadOverlay = document.getElementById("upload-prompt-overlay");
+        if (uploadOverlay) uploadOverlay.style.display = "flex";
+        renderActiveView();
+      });
+    }
 
     // Role-based Access Simulation selector
     document.getElementById("role-selector").addEventListener("change", (e) => {
@@ -397,7 +599,8 @@ document.addEventListener("DOMContentLoaded", () => {
           if (err) { alert(`Excel Parsing Error: ${err.message}`); return; }
           if (result.isMultiSheet) { openSheetSelectorModal(result.sheetNames); return; }
           showSuccess("Uploaded Sheet Active");
-          updateFileList([{ name: files[0].name, rows: dp.rawDataset.length }], dp.rawDataset.length);
+          dp.saveDatasetToStorage();
+          renderFileList([{ name: files[0].name, rows: dp.rawDataset.length }], dp.rawDataset.length);
           finishInit();
         });
       } else {
@@ -405,7 +608,8 @@ document.addEventListener("DOMContentLoaded", () => {
         dp.parseMultipleFiles(files, (err, result) => {
           if (err) { alert(`Excel Parsing Error: ${err.message}`); return; }
           showSuccess(`${files.length} Files Merged Active`);
-          updateFileList(result.fileResults, result.totalRows);
+          dp.saveDatasetToStorage();
+          renderFileList(result.fileResults, result.totalRows);
           finishInit();
         });
       }
@@ -423,7 +627,7 @@ document.addEventListener("DOMContentLoaded", () => {
         dp.appendMultipleFiles(files, (err, result) => {
           if (err) { alert(`Append Error: ${err.message}`); return; }
           const listEl = document.getElementById("loaded-files-list");
-          if (listEl) {
+          if (false && listEl) {
             // Prepend to existing list
             const added = result.fileResults.map(f =>
               `➕ <strong>${f.name}</strong>: +${(f.rows || 0).toLocaleString()} rows`
@@ -431,6 +635,8 @@ document.addEventListener("DOMContentLoaded", () => {
             listEl.innerHTML = added + "<br>" + listEl.innerHTML;
             listEl.innerHTML += `<br>✅ <strong>Total now: ${result.totalRows.toLocaleString()} records</strong>`;
           }
+          dp.saveDatasetToStorage();
+          renderFileList(result.fileResults, result.totalRows, "append");
           document.getElementById("data-status-text").textContent = `${result.totalRows.toLocaleString()} Records (Merged)`;
           finishInit();
         });
@@ -587,6 +793,18 @@ document.addEventListener("DOMContentLoaded", () => {
     if (bandSelect) {
       bandSelect.addEventListener("change", renderPerformanceView);
     }
+    const riskSelect = document.getElementById("filter-performance-risk");
+    if (riskSelect) riskSelect.addEventListener("change", renderPerformanceView);
+    const fairSelect = document.getElementById("filter-performance-fair");
+    if (fairSelect) fairSelect.addEventListener("change", renderPerformanceView);
+    const minConvInput = document.getElementById("filter-min-conversion");
+    if (minConvInput) minConvInput.addEventListener("input", renderPerformanceView);
+
+    ["sim-counsellor-select", "sim-dials-lift", "sim-connect-lift"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener("input", renderWhatIfSimulator);
+      if (el) el.addEventListener("change", renderWhatIfSimulator);
+    });
 
     // Bind Table Sorting triggers
     bindTableSorting();
@@ -670,6 +888,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       });
     }
+
   }
 
   // --- MULTI-COLUMN SORTING BINDER HELPERS ---
@@ -1023,9 +1242,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const searchVal = document.getElementById("search-counsellor").value.toLowerCase();
     const isRegex = document.getElementById("regex-search-mode").checked;
     const bandVal = document.getElementById("filter-performance-band").value;
+    const riskVal = document.getElementById("filter-performance-risk")?.value || "all";
+    const fairVal = document.getElementById("filter-performance-fair")?.value || "all";
+    const minConversion = parseFloat(document.getElementById("filter-min-conversion")?.value || "");
 
     // Register search/band filter dynamically
     const filteredBreakdown = breakdown.filter(c => {
+      const risk = ae.calculateRiskScore(c);
+      const leadQuality = ae.calculateLeadQuality(c);
+      const fair = ae.calculateFairScore(c, leadQuality);
       let matchSearch = false;
       if (isRegex && searchVal) {
         try {
@@ -1037,8 +1262,11 @@ document.addEventListener("DOMContentLoaded", () => {
       } else {
         matchSearch = c.name.toLowerCase().includes(searchVal) || c.email.toLowerCase().includes(searchVal);
       }
-      const matchBand = bandVal === "all" || c.band === bandVal;
-      return matchSearch && matchBand;
+      const matchBand = bandVal === "all" || (c.band || "").trim().toLowerCase() === bandVal.trim().toLowerCase();
+      const matchRisk = riskVal === "all" || risk.category === riskVal;
+      const matchFair = fairVal === "all" || fair.rating === fairVal;
+      const matchConversion = Number.isNaN(minConversion) || c.conversionPercentage >= minConversion;
+      return matchSearch && matchBand && matchRisk && matchFair && matchConversion;
     });
 
     if (filteredBreakdown.length === 0) {
@@ -1063,9 +1291,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
       tableBody.innerHTML += `
         <tr style="cursor:pointer;" onclick="window.routeToProfile('${c.email}')">
-          <td style="font-weight:700; color:var(--accent-info);">${c.name}</td>
-          <td><div style="font-size:0.75rem;">TL: ${toTitleCase(c.teamLead)}</div><div style="font-size:0.7rem; color:var(--text-muted)">Mgr: ${toTitleCase(c.manager)}</div></td>
-          <td>${c.campaign}</td>
+          <td style="font-weight:700; color:var(--accent-info);">${escapeHTML(displayName(c))}</td>
+          <td><div style="font-size:0.75rem;">TL: ${escapeHTML(toTitleCase(c.teamLead))}</div><div style="font-size:0.7rem; color:var(--text-muted)">Mgr: ${escapeHTML(toTitleCase(c.manager))}</div></td>
+          <td>${escapeHTML(c.campaign)}</td>
           <td>${c.attendance.rate}%</td>
           <td>${c.target}</td>
           <td><strong style="font-size:0.95rem;">${c.totalAdmissions}</strong></td>
@@ -1081,12 +1309,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
   }
-
-  // Helper link to trigger individual profile routing from cards/rows
-  window.routeToProfile = (email) => {
-    // Intercept to open contextual slide-in drawer instead of switching views (Module 5)
-    openProfileDrawer(email);
-  };
 
   window.routeToRecommendations = () => {
     switchView("view-recommendations");
@@ -1203,7 +1425,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const c = breakdown.find(item => item.email === activeCounsellorEmail);
     if (!c) return;
 
-    // Populator profile basic card
+    // Populate profile basic card
     document.getElementById("prof-name").textContent = c.name;
     document.getElementById("prof-email").textContent = c.email;
     document.getElementById("prof-avatar").textContent = c.name.charAt(0);
@@ -1311,7 +1533,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function normalizeCounsellorDimensions(c) {
-    const activeDays = c.attendance.present + c.attendance.halfDay * 0.5 || 1;
+    const activeDays = (c.attendance.present + c.attendance.halfDay * 0.5) || 1;
     
     const dialsMetric = Math.min(100, Math.round((c.totalDials / activeDays) / 80 * 100)); // benchmark 80
     const reachability = Math.min(100, Math.round((c.totalConnected / (c.totalDials || 1)) * 2 * 100)); // benchmark 50%
@@ -1511,8 +1733,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const pillClass = risk.category === "Red" ? "red" : risk.category === "Yellow" ? "yellow" : "green";
 
       tableBody.innerHTML += `
-        <tr style="cursor:pointer;" onclick="window.routeToProfile('${c.email}')">
-          <td style="font-weight:700; color:var(--accent-info);">${c.name}</td>
+        <tr style="cursor:pointer;" onclick="window.explainRisk('${escapeHTML(c.email)}')">
+          <td style="font-weight:700; color:var(--accent-info);">${escapeHTML(displayName(c))}</td>
           <td>${pred.target}</td>
           <td>${pred.currentAdmissions}</td>
           <td><strong style="font-size:0.95rem;">${pred.predictedAdmissions}</strong></td>
@@ -1522,6 +1744,10 @@ document.addEventListener("DOMContentLoaded", () => {
         </tr>
       `;
     });
+
+    populateSimulatorOptions(breakdown);
+    if (breakdown[0]) renderRiskExplanation(breakdown[0]);
+    renderWhatIfSimulator();
 
     // Team Target Risk forecasting grid (Module 12)
     let teamPredictorBoxId = "team-target-predictor-box";
@@ -1596,6 +1822,71 @@ document.addEventListener("DOMContentLoaded", () => {
           </tbody>
         </table>
       </div>
+    `;
+  }
+
+  function renderRiskExplanation(c) {
+    const panel = document.getElementById("risk-explanation-panel");
+    if (!panel || !c) return;
+    const risk = ae.calculateRiskScore(c);
+    const pred = ae.predictTargetAchievement(c);
+    const leadQuality = ae.calculateLeadQuality(c);
+    const fair = ae.calculateFairScore(c, leadQuality);
+    const contributors = risk.contributors.length
+      ? risk.contributors.map(item => `<div class="diagnostic-card ${item.impact === "High" ? "critical" : "warning"}"><strong>${escapeHTML(item.factor)}</strong><br>${escapeHTML(item.description)}</div>`).join("")
+      : '<div class="diagnostic-card safe"><strong>No major risk contributors</strong><br>Current velocity and fair score are within expected range.</div>';
+    panel.innerHTML = `
+      <div><strong style="color:var(--text-primary);">${escapeHTML(displayName(c))}</strong> ${privacyMode ? "" : `<span style="color:var(--text-muted);">${escapeHTML(maskedEmail(c.email))}</span>`}</div>
+      <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:8px;">
+        <div class="profile-stat-box"><div class="profile-stat-label">FPI</div><div class="profile-stat-val">${fair.fpi}</div></div>
+        <div class="profile-stat-box"><div class="profile-stat-label">Miss Prob</div><div class="profile-stat-val">${pred.missProbability}%</div></div>
+        <div class="profile-stat-box"><div class="profile-stat-label">Gap</div><div class="profile-stat-val">${pred.gap}</div></div>
+        <div class="profile-stat-box"><div class="profile-stat-label">Projected</div><div class="profile-stat-val">${pred.predictedAdmissions}/${pred.target}</div></div>
+      </div>
+      ${contributors}
+    `;
+  }
+
+  window.explainRisk = (email) => {
+    const c = dp.getCounsellorBreakdown().find(item => item.email === email);
+    renderRiskExplanation(c);
+    activeCounsellorEmail = email;
+  };
+
+  function populateSimulatorOptions(breakdown) {
+    const select = document.getElementById("sim-counsellor-select");
+    if (!select) return;
+    const previous = select.value;
+    select.innerHTML = breakdown.map(c => `<option value="${escapeHTML(c.email)}">${escapeHTML(displayName(c))}</option>`).join("");
+    if (breakdown.some(c => c.email === previous)) select.value = previous;
+  }
+
+  function renderWhatIfSimulator() {
+    const result = document.getElementById("simulator-result");
+    const select = document.getElementById("sim-counsellor-select");
+    if (!result || !select) return;
+    const c = dp.getCounsellorBreakdown().find(item => item.email === select.value);
+    if (!c) {
+      result.textContent = "Choose a counsellor to simulate improvements.";
+      return;
+    }
+    const dialsLift = parseFloat(document.getElementById("sim-dials-lift")?.value || 0);
+    const connectLift = parseFloat(document.getElementById("sim-connect-lift")?.value || 0);
+    const improved = {
+      ...c,
+      totalDials: Math.round(c.totalDials * (1 + dialsLift / 100)),
+      totalConnected: Math.round(c.totalConnected * (1 + connectLift / 100))
+    };
+    const base = ae.predictTargetAchievement(c);
+    const currentRate = c.totalConnected > 0 ? c.totalAdmissions / c.totalConnected : 0;
+    improved.totalAdmissions = Math.round(improved.totalConnected * currentRate);
+    improved.conversionPercentage = improved.totalConnected > 0 ? parseFloat(((improved.totalAdmissions / improved.totalConnected) * 100).toFixed(2)) : 0;
+    const after = ae.predictTargetAchievement(improved);
+    result.innerHTML = `
+      <strong>${escapeHTML(displayName(c))}</strong><br>
+      Dials +${dialsLift}% and connects +${connectLift}% could move projected admissions from
+      <strong>${base.predictedAdmissions}</strong> to <strong>${after.predictedAdmissions}</strong>,
+      changing the target gap from <strong>${base.gap}</strong> to <strong>${after.gap}</strong>.
     `;
   }
 
@@ -1754,6 +2045,8 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderRecommendationsView() {
     const breakdown = dp.getCounsellorBreakdown();
     const recs = ae.generateRecommendations(breakdown, dp.filters);
+    renderCoachingTaskBoard(recs);
+    renderDataQualityPanel();
 
     const listContainer = document.getElementById("recommendations-full-list");
     listContainer.innerHTML = "";
@@ -1786,6 +2079,70 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
       `;
     });
+  }
+
+  function getStoredTasks() {
+    try {
+      return JSON.parse(localStorage.getItem("ai_counsellor_tasks") || "[]");
+    } catch (err) {
+      return [];
+    }
+  }
+
+  function saveStoredTasks(tasks) {
+    localStorage.setItem("ai_counsellor_tasks", JSON.stringify(tasks));
+  }
+
+  function renderCoachingTaskBoard(recs) {
+    const board = document.getElementById("coaching-task-board");
+    if (!board) return;
+    const existing = getStoredTasks();
+    const generated = recs.slice(0, 6).map(rec => {
+      const id = `${rec.counsellorEmail}|${rec.actionText}`;
+      return existing.find(t => t.id === id) || {
+        id,
+        counsellorEmail: rec.counsellorEmail,
+        title: rec.actionText,
+        owner: rec.counsellorName,
+        priority: rec.priority,
+        status: "Pending"
+      };
+    });
+    saveStoredTasks(generated);
+    if (generated.length === 0) {
+      board.innerHTML = '<div style="color:var(--text-muted); font-size:0.8rem;">No active coaching tasks.</div>';
+      return;
+    }
+    board.innerHTML = generated.map(task => `
+      <div class="diagnostic-card ${task.priority === "High" ? "critical" : task.priority === "Medium" ? "warning" : "safe"}" style="display:grid; gap:6px;">
+        <div><strong>${escapeHTML(task.title)}</strong><br><span style="color:var(--text-muted);">${escapeHTML(privacyMode ? maskedEmail(task.counsellorEmail) : task.owner)}</span></div>
+        <select class="filter-select task-status-select" data-task-id="${escapeHTML(task.id)}" style="width:100%; margin:0;">
+          ${["Pending", "In Progress", "Done"].map(status => `<option value="${status}" ${task.status === status ? "selected" : ""}>${status}</option>`).join("")}
+        </select>
+      </div>
+    `).join("");
+    document.querySelectorAll(".task-status-select").forEach(select => {
+      select.addEventListener("change", () => {
+        const tasks = getStoredTasks().map(task => task.id === select.dataset.taskId ? { ...task, status: select.value } : task);
+        saveStoredTasks(tasks);
+      });
+    });
+  }
+
+  function renderDataQualityPanel() {
+    const panel = document.getElementById("data-quality-panel");
+    if (!panel) return;
+    const audit = dp.auditDataset();
+    const statusClass = audit.score >= 90 ? "safe" : audit.score >= 70 ? "warning" : "critical";
+    panel.innerHTML = `
+      <div class="status-pill ${statusClass}" style="justify-content:center;">Upload Health ${audit.score}/100</div>
+      <div style="font-size:0.78rem; color:var(--text-secondary); line-height:1.5;">
+        Rows: <strong>${audit.totalRows.toLocaleString()}</strong><br>
+        Missing columns: <strong>${audit.missingColumns.length ? escapeHTML(audit.missingColumns.join(", ")) : "None"}</strong><br>
+        Blank emails: <strong>${audit.blankEmails}</strong> | Invalid dates: <strong>${audit.invalidDates}</strong><br>
+        Duplicates: <strong>${audit.duplicateRows}</strong> | Abnormal rows: <strong>${audit.abnormalRows}</strong>
+      </div>
+    `;
   }
 
   // Recommendation action prompt simulation

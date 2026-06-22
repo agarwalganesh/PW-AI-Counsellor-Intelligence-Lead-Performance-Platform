@@ -26,12 +26,17 @@ class DataProcessor {
       band: "all",
       status: "all",
       month: "all",      // Month filter dropdown selection
-      daysLimit: "all"   // Days filter dropdown selection
+      daysLimit: "all",  // Days filter dropdown selection
+      riskLevel: "all",
+      fairRating: "all",
+      minConversion: "",
+      minTargetAchievement: ""
     };
     this.sortDescriptors = []; // Multi-column sorting state
     this.COURSE_PRICE = 25000; // Average price of course in INR
     this.DIAL_COST = 0.50; // Cost per dialled call in INR
     this.SALARY_DAILY = 1200; // Cost per active day per agent in INR
+    this.storageMode = "session";
     this.loadStateFromLocalStorage();
   }
 
@@ -80,6 +85,10 @@ class DataProcessor {
     this.filters.band = "all";
     this.filters.status = "all";
     this.filters.counsellorEmail = "all";
+    this.filters.riskLevel = "all";
+    this.filters.fairRating = "all";
+    this.filters.minConversion = "";
+    this.filters.minTargetAchievement = "";
 
     // ✅ FIX: Clear stale portal state from localStorage so finishInit
     // doesn't re-apply old manager/TL filters from a previous session
@@ -137,7 +146,7 @@ class DataProcessor {
         // All files parsed — load merged dataset
         this.loadDataset(allRows);
         try {
-          localStorage.setItem("ai_counsellor_dataset", JSON.stringify(this.rawDataset));
+          this.saveDatasetToStorage();
         } catch(err) {
           console.warn("Could not save to LocalStorage (data size limit exceeded).", err);
         }
@@ -192,7 +201,7 @@ class DataProcessor {
         // All parsed — append merged rows
         const addedRows = this.appendDataset(allNewRows);
         try {
-          localStorage.setItem("ai_counsellor_dataset", JSON.stringify(this.rawDataset));
+          this.saveDatasetToStorage();
         } catch(err) {
           console.warn("Could not save to LocalStorage (data size limit exceeded).", err);
         }
@@ -256,7 +265,7 @@ class DataProcessor {
   parseExcelDate(excelDate) {
     if (!excelDate) return "";
     if (excelDate instanceof Date) {
-      return excelDate.toISOString().split("T")[0];
+      return this.formatLocalDate(excelDate);
     }
     if (typeof excelDate === "number") {
       // Excel serial date number
@@ -279,9 +288,16 @@ class DataProcessor {
     // Fallback Javascript parse
     const parsed = new Date(strDate);
     if (!isNaN(parsed.getTime())) {
-      return parsed.toISOString().split("T")[0];
+      return this.formatLocalDate(parsed);
     }
     return strDate;
+  }
+
+  formatLocalDate(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
   }
 
   // 2. SYSTEM VALUE MAPPING (Excel Key Safety) & Case Normalization
@@ -451,6 +467,8 @@ class DataProcessor {
     });
   }
 
+
+
   // Read uploaded file using SheetJS
   parseExcelFile(file, callback) {
     const reader = new FileReader();
@@ -481,7 +499,7 @@ class DataProcessor {
         
         this.loadDataset(json);
         try {
-          localStorage.setItem("ai_counsellor_dataset", JSON.stringify(this.rawDataset));
+          this.saveDatasetToStorage();
         } catch(err) {
           console.warn("Could not save to LocalStorage (data size limit exceeded).", err);
         }
@@ -520,7 +538,7 @@ class DataProcessor {
       
       this.loadDataset(mergedJson);
       try {
-        localStorage.setItem("ai_counsellor_dataset", JSON.stringify(this.rawDataset));
+        this.saveDatasetToStorage();
       } catch(err) {
         console.warn("Could not save to LocalStorage (data size limit exceeded).", err);
       }
@@ -600,7 +618,7 @@ class DataProcessor {
         if (!isNaN(rowDate.getTime())) {
           // i. Month filter: Filter by specific Month (e.g. "04" for April)
           if (this.filters.month && this.filters.month !== "all") {
-            const rowMonth = String(rowDate.getMonth() + 1).padStart(2, "0");
+            const rowMonth = this.filters.month.length === 2 ? row["Date"].slice(5, 7) : row["Date"].slice(0, 7);
             if (rowMonth !== this.filters.month) {
               return false;
             }
@@ -650,7 +668,7 @@ class DataProcessor {
     dates.forEach(d => {
       const parts = d.split("-");
       if (parts.length >= 2) {
-        monthsSet.add(parts[1]); // e.g. "06" for "2026-06-17"
+        monthsSet.add(`${parts[0]}-${parts[1]}`);
       }
     });
     const monthsList = Array.from(monthsSet).sort();
@@ -856,6 +874,9 @@ class DataProcessor {
           this.DIAL_COST = state.financials.dialCost ?? 0.50;
           this.SALARY_DAILY = state.financials.salaryDaily ?? 1200;
         }
+        if (state.storageMode) {
+          this.storageMode = state.storageMode;
+        }
       }
     } catch (err) {
       console.warn("Could not load state from LocalStorage", err);
@@ -871,12 +892,83 @@ class DataProcessor {
           coursePrice: this.COURSE_PRICE,
           dialCost: this.DIAL_COST,
           salaryDaily: this.SALARY_DAILY
-        }
+        },
+        storageMode: this.storageMode
       };
       localStorage.setItem("ai_counsellor_portal_state", JSON.stringify(state));
     } catch (err) {
       console.warn("Could not save state to LocalStorage", err);
     }
+  }
+
+  getDatasetStorage() {
+    return this.storageMode === "local" ? localStorage : sessionStorage;
+  }
+
+  setStorageMode(mode) {
+    this.storageMode = mode === "local" ? "local" : "session";
+    localStorage.removeItem("ai_counsellor_dataset");
+    sessionStorage.removeItem("ai_counsellor_dataset");
+    this.saveStateToLocalStorage();
+    this.saveDatasetToStorage();
+  }
+
+  saveDatasetToStorage() {
+    try {
+      this.getDatasetStorage().setItem("ai_counsellor_dataset", JSON.stringify(this.rawDataset));
+    } catch(err) {
+      console.warn("Could not save dataset to browser storage.", err);
+    }
+  }
+
+  clearStoredDataset() {
+    localStorage.removeItem("ai_counsellor_dataset");
+    sessionStorage.removeItem("ai_counsellor_dataset");
+    this.rawDataset = [];
+    this.filteredDataset = [];
+    this.counsellorsList = [];
+    this.applyDashboardFilters();
+  }
+
+  auditDataset(dataset = this.rawDataset) {
+    const required = ["Counselor Email", "Date", "Dialled Calls", "Connected Calls", "Total Admissions", "Target"];
+    const rows = Array.isArray(dataset) ? dataset : [];
+    const duplicateKeys = new Set();
+    const seenKeys = new Set();
+    const missingColumns = required.filter(col => !rows.some(row => row[col] !== undefined && row[col] !== ""));
+    let blankEmails = 0;
+    let invalidDates = 0;
+    let abnormalRows = 0;
+
+    rows.forEach(row => {
+      const email = row["Counselor Email"];
+      const date = row["Date"];
+      if (!email) blankEmails++;
+      if (!date || isNaN(new Date(date + "T00:00:00").getTime())) invalidDates++;
+      const key = `${email || "blank"}|${date || "blank"}`;
+      if (seenKeys.has(key)) duplicateKeys.add(key);
+      seenKeys.add(key);
+
+      const dials = row["Dialled Calls"] || 0;
+      const connected = row["Connected Calls"] || row["Connected calls"] || 0;
+      const admissions = row["Total Admissions"] || row["Total admissions"] || 0;
+      const target = row["Target"] || 0;
+      if (connected > dials || admissions > Math.max(connected, target * 3) || target < 0) {
+        abnormalRows++;
+      }
+    });
+
+    const issueCount = missingColumns.length + blankEmails + invalidDates + duplicateKeys.size + abnormalRows;
+    const score = rows.length === 0 ? 0 : Math.max(0, Math.round(100 - (issueCount / Math.max(rows.length, 1)) * 100));
+    return {
+      score,
+      totalRows: rows.length,
+      missingColumns,
+      blankEmails,
+      invalidDates,
+      duplicateRows: duplicateKeys.size,
+      abnormalRows
+    };
   }
 
   // --- MULTI-COLUMN SORTING ---

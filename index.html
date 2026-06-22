@@ -109,6 +109,15 @@
             <span id="data-status-text">Using Mock Dataset</span>
           </div>
           <div id="loaded-files-list" style="font-size:0.65rem; color:var(--text-muted); margin-top:4px; line-height:1.5;"></div>
+          <div style="display:grid; gap:6px; margin-top:8px;">
+            <select id="storage-mode-select" class="filter-select" title="Choose whether uploaded data persists after the browser closes" style="width:100%; margin:0; font-size:0.72rem;">
+              <option value="session">Session storage</option>
+              <option value="local">Remember uploads</option>
+            </select>
+            <button id="clear-uploaded-data-btn" class="export-btn" style="width:100%; justify-content:center; font-size:0.72rem;">Clear Uploaded Data</button>
+          </div>
+          
+
         </div>
       </div>
     </aside>
@@ -162,6 +171,14 @@
             </select>
           </div>
           
+          <div class="filter-group">
+            <span class="filter-label">View:</span>
+            <label style="display:flex; align-items:center; gap:6px; font-size:0.75rem; color:var(--text-secondary); cursor:pointer;">
+              <input type="checkbox" id="privacy-mode-toggle">
+              Presentation
+            </label>
+          </div>
+
           <!-- Role Permission Simulator -->
           <div class="role-badge-container">
             <div class="role-icon" id="role-indicator"></div>
@@ -186,12 +203,20 @@
         </div>
 
         <!-- UPLOAD PROMPT OVERLAY -->
-        <div class="no-data-overlay" id="upload-prompt-overlay" style="display:flex;">
-          <div class="no-data-icon">📁</div>
-          <h2 class="no-data-title">No Excel Sheet Active</h2>
-          <p class="no-data-desc">Upload one or <strong>multiple Excel files</strong> — April &amp; May data will be <strong>auto-merged</strong> into a single unified dataset.</p>
-          <label for="excel-file-input" class="no-data-btn" style="cursor: pointer; text-align: center; display: inline-block;">📂 Upload Excel File(s)</label>
-          <p style="font-size:0.75rem; color:var(--text-muted); margin-top:8px;">Tip: Hold Ctrl/Cmd to select multiple files at once</p>
+        <div class="no-data-overlay" id="upload-prompt-overlay" style="display:flex; flex-direction:column; gap:20px; padding: 40px;">
+          <div class="no-data-icon" style="font-size:3rem; margin-bottom: 5px;">📁</div>
+          <h2 class="no-data-title" style="margin:0 0 5px 0;">No Active Data Source</h2>
+          <p class="no-data-desc" style="max-width:550px; margin:0 auto 15px auto;">Please upload your sales counsellor intelligence database. April & May logs will auto-merge.</p>
+          
+          <!-- Single Premium Upload Box -->
+          <div style="width:100%; max-width:460px; background:rgba(255,255,255,0.02); border:1px solid var(--surface-border); border-radius:16px; padding:32px; display:flex; flex-direction:column; align-items:center; gap:20px; box-shadow: 0 8px 32px rgba(0,0,0,0.3); backdrop-filter: blur(10px); margin: 0 auto;">
+            <div style="font-size:2.5rem; filter: drop-shadow(0 0 10px rgba(99,179,237,0.3));">📂</div>
+            <h3 style="font-size:1.1rem; font-weight:700; margin:0; color:var(--text-primary); text-align:center;">Local Excel Files</h3>
+            <p style="font-size:0.8rem; color:var(--text-muted); text-align:center; margin:0; line-height:1.5;">Drag and drop or select Excel files from your device.<br>Multiple sheets or files will be merged in-memory automatically.</p>
+            <label for="excel-file-input" class="no-data-btn" style="cursor: pointer; text-align: center; display: inline-block; margin:10px 0 0 0; width:100%; box-sizing:border-box;">📂 Upload Excel File(s)</label>
+          </div>
+          
+          <p style="font-size:0.75rem; color:var(--accent-info); margin-top:8px;" id="overlay-sync-status-msg"></p>
         </div>
 
         <!-- 1. EXECUTIVE DASHBOARD -->
@@ -360,6 +385,19 @@
                   <option value="Band B">Band B</option>
                   <option value="Band C">Band C</option>
                 </select>
+                <select id="filter-performance-risk" class="filter-select" style="width:120px; margin:0;">
+                  <option value="all">All Risk</option>
+                  <option value="Red">Red</option>
+                  <option value="Yellow">Yellow</option>
+                  <option value="Green">Green</option>
+                </select>
+                <select id="filter-performance-fair" class="filter-select" style="width:145px; margin:0;">
+                  <option value="all">All Fair Score</option>
+                  <option value="Highly efficient">Highly efficient</option>
+                  <option value="Parity">Parity</option>
+                  <option value="Underperforming">Underperforming</option>
+                </select>
+                <input type="number" id="filter-min-conversion" placeholder="Min conv %" class="filter-select" style="width:110px; margin:0;" min="0" max="100">
               </div>
             </div>
             
@@ -656,6 +694,29 @@
             </div>
 
           </div>
+          <div class="dashboard-row-grid" style="grid-template-columns: 1fr 1fr; margin-top:20px;">
+            <div class="dashboard-panel">
+              <div class="panel-header">
+                <h3 class="panel-title">Risk Explanation Panel</h3>
+              </div>
+              <div class="panel-body" id="risk-explanation-panel" style="display:grid; gap:10px; color:var(--text-secondary); font-size:0.82rem;">
+                Select a counsellor row to inspect the risk formula.
+              </div>
+            </div>
+            <div class="dashboard-panel">
+              <div class="panel-header">
+                <h3 class="panel-title">What-If Target Simulator</h3>
+              </div>
+              <div class="panel-body" style="display:grid; gap:12px;">
+                <select id="sim-counsellor-select" class="filter-select" style="width:100%; margin:0;"></select>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                  <label style="font-size:0.75rem; color:var(--text-secondary);">Dials Lift %<input id="sim-dials-lift" type="range" min="0" max="50" value="20" style="width:100%;"></label>
+                  <label style="font-size:0.75rem; color:var(--text-secondary);">Connect Lift %<input id="sim-connect-lift" type="range" min="0" max="40" value="10" style="width:100%;"></label>
+                </div>
+                <div id="simulator-result" class="ai-summary-box" style="margin:0;">Choose a counsellor to simulate improvements.</div>
+              </div>
+            </div>
+          </div>
         </section>
 
         <!-- 7. LEAD QUALITY INTELLIGENCE -->
@@ -806,6 +867,16 @@
               <h3 class="panel-title">AI Recommendation Engine Actions</h3>
             </div>
             <div class="panel-body">
+              <div class="dashboard-row-grid" style="grid-template-columns: 1fr 1fr; margin-bottom:16px;">
+                <div class="dashboard-panel" style="box-shadow:none;">
+                  <div class="panel-header"><h3 class="panel-title">Coaching Task Board</h3></div>
+                  <div class="panel-body" id="coaching-task-board" style="display:grid; gap:8px;"></div>
+                </div>
+                <div class="dashboard-panel" style="box-shadow:none;">
+                  <div class="panel-header"><h3 class="panel-title">Data Quality & Upload Health</h3></div>
+                  <div class="panel-body" id="data-quality-panel" style="display:grid; gap:8px;"></div>
+                </div>
+              </div>
               <div class="recommendation-list" id="recommendations-full-list">
                 <!-- Javascript builds cards -->
               </div>

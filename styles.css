@@ -2,6 +2,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap');
 
 :root {
+  color-scheme: dark; /* Makes native date pickers render in dark mode */
   /* Colors */
   --bg-color: hsl(222, 47%, 6%);
   --surface-color: hsla(223, 47%, 11%, 0.75);
@@ -343,6 +344,14 @@ button, input, select, textarea {
   font-size: 0.85rem;
   outline: none;
   cursor: pointer;
+  transition: var(--transition-smooth);
+  color-scheme: dark; /* Ensure dark native calendar popup */
+}
+
+.date-picker-input:hover,
+.date-picker-input:focus {
+  border-color: var(--accent-info);
+  box-shadow: var(--glow-shadow-info);
 }
 
 /* Role Selector Badge */

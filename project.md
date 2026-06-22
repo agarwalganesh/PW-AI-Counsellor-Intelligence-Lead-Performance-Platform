@@ -1,14 +1,14 @@
 # 📁 PROJECT.md — How Every File Works
 
-> Complete technical guide of all files in the AI Counsellor Intelligence & Lead Performance Platform.
-> Har file kya karti hai, kaun si functions hain, aur sab kuch kaise ek saath kaam karta hai.
+> Complete technical guide for all files in the **AI Counsellor Intelligence & Lead Performance Platform**.
+> What each file does, its key functions, and how everything connects together.
 
 ---
 
-## 🗂️ File Load Order (Browser mein yahi sequence hai)
+## 🗂️ File Load Order (Browser)
 
 ```
-index.html  →  loads in order:
+index.html  →  loads in this order:
   1. mock-data.js          (window.MOCK_DATA available)
   2. data-processor.js     (window.DataProcessor available)
   3. analytics-engine.js   (window.AnalyticsEngine available)
@@ -20,10 +20,10 @@ index.html  →  loads in order:
 ---
 
 ## 📄 FILE 1: `index.html`
-**Role**: Poora app ka skeleton / layout
+**Role**: Full app skeleton / layout
 
-### Kya hai isme:
-- **9 Dashboard Views** — har ek `<section id="view-XXX">` ke andar:
+### What's inside:
+- **9 Dashboard Views** — each inside `<section id="view-XXX">`:
   - `view-executive` — Executive Dashboard
   - `view-performance` — Counsellor Metrics Table
   - `view-rankings` — Leaderboards
@@ -35,23 +35,23 @@ index.html  →  loads in order:
   - `view-recommendations` — AI Recommendations
 
 - **Modals**:
-  - `#multi-sheet-modal` — Multi-sheet selector (jab Excel mein multiple sheets hon)
-  - `#upload-prompt-overlay` — First screen jab koi data nahi
+  - `#multi-sheet-modal` — Multi-sheet selector (when Excel has multiple sheets)
+  - `#upload-prompt-overlay` — First screen when no data is loaded
   - `#access-denied-overlay` — Role restriction watermark
 
-- **Profile Drawer** (`#profile-drawer`) — Slide-in 360° profile panel (separate from main views)
+- **Profile Drawer** (`#profile-drawer`) — Slide-in 360° profile panel
 
-- **Exports Bar** (`#exports-bar`) — CSV / Excel / PDF buttons har page pe
+- **Exports Bar** (`#exports-bar`) — CSV / Excel / PDF buttons on every page
 
 - **Top Header** — Date filter, Manager/TL/Campaign dropdowns, Role selector
 
 - **Sidebar** — Navigation links + file upload button
 
-### Important IDs (JS inhe use karta hai):
-| Element ID | Kya hai |
+### Important IDs Used by JavaScript:
+| Element ID | Purpose |
 |---|---|
 | `excel-file-input` | File upload input |
-| `data-status-dot` | Green/Red dot status |
+| `data-status-dot` | Green/Red status dot |
 | `filter-start-date` / `filter-end-date` | Date range |
 | `filter-manager` / `filter-team-lead` / `filter-campaign` | Dropdowns |
 | `role-selector` | Manager/TL/Counsellor toggle |
@@ -63,7 +63,7 @@ index.html  →  loads in order:
 ---
 
 ## 📄 FILE 2: `data-processor.js`
-**Role**: Excel padhna, data saaf karna, filter karna, localStorage mein save karna
+**Role**: Read Excel, clean data, apply filters, save to LocalStorage
 
 ### Global Variable:
 ```js
@@ -73,61 +73,60 @@ window.DataProcessor  // single instance used everywhere
 ### Main Functions:
 
 #### `parseExcelFile(file, callback)`
-- Browser mein Excel file padhta hai using `FileReader`
-- SheetJS (`XLSX.read`) se JSON mein convert karta hai
-- Agar **1 sheet** → seedha `loadDataset()` call
-- Agar **multiple sheets** → `callback(null, { isMultiSheet: true, sheetNames })` return karta hai
-- `app.js` callback mein check karta hai aur multi-sheet modal kholta hai
+- Reads Excel file in the browser using `FileReader`
+- Converts to JSON using SheetJS (`XLSX.read`)
+- If **1 sheet** → directly calls `loadDataset()`
+- If **multiple sheets** → returns `callback(null, { isMultiSheet: true, sheetNames })`
+- `app.js` catches this callback and opens the multi-sheet modal
 
 #### `loadSheets(sheetNames, callback)`
-- Multiple sheets ko merge karta hai ek array mein
-- `loadDataset()` call karta hai merged data ke saath
+- Merges multiple sheets into a single array
+- Calls `loadDataset()` with merged data
 
 #### `cleanRow(row)`
-- Ek raw Excel row leta hai
-- **30+ column name variants** check karta hai (case-insensitive)
-- Email auto-detect: agar koi column match nahi → sab columns scan karta hai `@` ke liye
-- Dates convert karta hai (Excel serial, DD-MM-YYYY, YYYY-MM-DD sab handle karta hai)
-- Numbers `parseInt/parseFloat` se clean karta hai
+- Takes a raw Excel row
+- Checks **30+ column name variants** (case-insensitive)
+- Email auto-detect: if no column matches → scans all columns for any `@` value
+- Converts dates (Excel serial, DD-MM-YYYY, YYYY-MM-DD all handled)
+- Cleans numbers with `parseInt`/`parseFloat`
 
 #### `loadDataset(data)`
-- `cleanRow()` har row pe chalata hai
-- Rows drop karta hai jahan `Counselor Email` empty ho
-- `masterData` (global) mein store karta hai
-- `updateMetadata()` aur `applyDashboardFilters()` call karta hai
+- Runs `cleanRow()` on every row
+- Drops rows where `Counselor Email` is empty
+- Stores in global `masterData`
+- Calls `updateMetadata()` and `applyDashboardFilters()`
 
 #### `applyDashboardFilters()`
-- `masterData` pe saare active filters laagata hai
-- Result `filteredData` (global) mein store karta hai
+- Applies all active filters to `masterData`
+- Stores result in global `filteredData`
 - Filters: startDate, endDate, month, daysLimit, counsellorEmail, teamLead, manager, campaign, band, status
 
 #### `getCounsellorBreakdown()`
-- `filteredData` ko counsellor-wise group karta hai
-- Har counsellor ke liye `getAggregates()` call karta hai
-- Returns array of counsellor objects (ye sabse zyada use hota hai `app.js` mein)
+- Groups `filteredData` by counsellor
+- Calls `getAggregates()` for each counsellor
+- Returns array of counsellor objects (most-used function in `app.js`)
 
 #### `getAggregates(dataset)`
-- Sum of: dials, connected, effective, admissions, talktime, discounts
-- Count of: present/halfday/absent
+- Sums: dials, connected, effective, admissions, talktime, discounts
+- Counts: present/halfday/absent
 - Calculates: conversionPercentage, targetAchievement, effectiveRatio
 - Financial: grossRevenue, netRevenue, operationalBurn, grossMargin
 
 #### `getDailyTrend()`
-- Date-wise grouped totals return karta hai (for charts)
+- Returns date-grouped totals for chart rendering
 
 #### `getHourByHourData(email, date)` ⚠️ SIMULATED
-- Real data nahi hai — email+date se hash banata hai
-- Hash se deterministic fake hourly pattern generate karta hai
-- Hours: 9AM to 5PM, 9 slots
+- No real data — generates a deterministic fake hourly pattern from email+date hash
+- Hours: 9 AM to 5 PM, 9 slots
 
 #### `saveStateToLocalStorage()` / `loadStateFromLocalStorage()`
-- Active filters aur sort settings save/load karta hai browser mein
-- Page refresh ke baad bhi filters intact rehte hain
+- Saves/loads active filters and sort settings in the browser
+- Filters remain intact after page refresh
 
 ---
 
 ## 📄 FILE 3: `analytics-engine.js`
-**Role**: Saari calculations, AI scoring, predictions, recommendations
+**Role**: All calculations, AI scoring, predictions, recommendations
 
 ### Global Variable:
 ```js
@@ -140,15 +139,11 @@ window.AnalyticsEngine  // single instance
 - Inputs: `totalAdmissions`, `totalTarget`, `rawRecords`, `attendance`
 - Calls `calculateLeadQuality()` → `calculateFairScore()` → `predictTargetAchievement()`
 - **Risk Score = P_miss** (Target Miss Probability)
-- **Zone Logic**:
-  - Green: FPI ≥ 1.0 AND P_miss < 15%
-  - Red: FPI < 0.85 OR P_miss > 40%
-  - Yellow: baaki sab
+- **Zone Logic**: Green (FPI ≥ 1.0 AND P_miss < 15%) | Red (FPI < 0.85 OR P_miss > 40%) | Yellow (everything else)
 - Returns: `{ score, category, fpi, contributors }`
 
 #### `getDaysElapsed(records)`
-- Records ki dates mein se latest date ka `getDate()` return karta hai
-- E.g. "2026-06-17" → returns `17`
+- Returns `getDate()` of the latest date found in records
 - Fallback: `18` (anchor date)
 
 #### `predictTargetAchievement(counsellorData)`
@@ -161,54 +156,48 @@ window.AnalyticsEngine  // single instance
 - Hot = EMI Paid + Full Payment On Spot
 - Warm = Max(0, Form Filled − Hot)
 - Cold = Max(0, Connected − Hot − Warm)
-- LQS formula → category (Hot/Warm/Cold) → attribution text
+- Computes LQS → category (Hot/Warm/Cold) → attribution text
 - Returns: `{ hotLeads, warmLeads, coldLeads, score, category, attribution }`
 
 #### `calculateFairScore(counsellorData, leadQualityStats)`
 - Expected Rate = `(0.20×Hot + 0.10×Warm + 0.05×Cold) ÷ Connected × 100`
-- FPI = Actual Conv ÷ Expected Rate
-- FPI ≥ 1.10 → "Highly efficient" (Green)
-- FPI < 0.90 → "Underperforming" (Red)
+- FPI = Actual Conv % ÷ Expected Rate
+- FPI ≥ 1.10 → "Highly Efficient" (Green) | FPI < 0.90 → "Underperforming" (Red)
 - Returns: `{ expectedRate, actualRate, fpi, difference, rating, color }`
 
 #### `diagnosePerformance(counsellorData)`
-- 3 diagnostic cases check karta hai:
+- Checks 3 diagnostic cases:
   - **Case 1 Effort Gap**: Dials < 60/day AND Talktime < 180s AND Admissions < 2
   - **Case 2 Lead Quality Gap**: Dials ≥ 60/day AND Connect Rate < 40%
   - **Case 3 Skill Gap**: Connected > 15 AND Talktime ≥ 200s AND Admissions < 2
-- Fallback: "Optimal Performance" if nothing triggered
-- Returns: array of issue objects with `{ type, severity, reason, explanation, action }`
+- Fallback: "Optimal Performance"
+- Returns: array of `{ type, severity, reason, explanation, action }`
 
 #### `calculateFunnelDropoff(counsellorData)`
-- 5 funnel stages calculate karta hai:
-  - Stage 1: Dialled (always 100%)
-  - Stage 2: Connected Rate = Connected ÷ Dialled × 100
-  - Stage 3: Effective Rate = Effective ÷ Connected × 100
-  - Stage 4: Form Rate = Form Filled ÷ Effective × 100
-  - Stage 5: Admission Rate = Admissions ÷ Form Filled × 100
-- Finds the stage with **lowest %** → flagged as bottleneck
+- Stage 1: Dialled (100%) → Stage 2: Connected → Stage 3: Effective → Stage 4: Form → Stage 5: Admissions
+- Flags stage with lowest % as bottleneck
 - Returns: `{ stages, dropoffStage, advice }`
 
 #### `generateRecommendations(breakdown, filters)`
-- Har counsellor ke liye 5 rules check karta hai:
+- 5 rules per counsellor:
   - A: High effective ratio + low conversion → "Sales Coaching"
   - B: High LQS + Underperforming FPI → "Lead Reallocation"
   - C: P_miss > 70% → "Target Recovery Discount"
   - D: Avg dials < 60 → "Enable Auto-Dial"
   - E: LQS < 30 + low conversion → "Lead Quality Escalation"
-- Sort by priority: High > Medium > Low
+- Sorted by priority: High > Medium > Low
 
 #### `calculateStatisticalSignificance(cohortA, cohortB)`
 - Z-test: `Z = (p_A - p_B) ÷ SE`
 - `SE = √[p_pooled × (1-p_pooled) × (1/nA + 1/nB)]`
 - Abramowitz & Stegun CDF approximation for p-value
 - Significant if p < 0.05
-- Used in: Team Comparison page (bottom panel)
+- Used in: Team Comparison page
 
 ---
 
 ## 📄 FILE 4: `charts.js`
-**Role**: Canvas charts banana aur puraane charts destroy karna
+**Role**: Create and destroy canvas charts
 
 ### Global Variable:
 ```js
@@ -216,9 +205,8 @@ window.ChartingEngine  // single instance
 ```
 
 ### Chart Registry System:
-- `this.chartRegistry` — object jisme canvas ID → Chart instance store hota hai
-- `destroyChart(canvasId)` — purana chart destroy karta hai before re-rendering
-- Iske bina Chart.js duplicate charts pe crash karta
+- `this.chartRegistry` — object: canvas ID → Chart instance
+- `destroyChart(canvasId)` — destroys old chart before re-rendering (prevents Chart.js crash on duplicate canvases)
 
 ### Functions:
 
@@ -230,12 +218,12 @@ window.ChartingEngine  // single instance
 | `renderCounsellorRadar(id, name, scores, avg)` | Radar | Profile, Drawer |
 | `renderRiskGauge(id, score)` | Half-Doughnut | Profile, Drawer |
 
-### Radar Normalization Benchmarks (in app.js):
+### Radar Normalization Benchmarks (set in `app.js`):
 ```js
 Dials          → benchmark 80/day   → score = (avgDials ÷ 80) × 100
 Reachability   → benchmark 50%      → score = (connectRate ÷ 0.50) × 100
 Engagement     → benchmark 100%     → score = effectiveRatio
-Closing Power  → benchmark 10%      → score = (convPct ÷ 10) × 100  [Adjusted to realistic 10%]
+Closing Power  → benchmark 10%      → score = (convPct ÷ 10) × 100
 Attendance     → benchmark 100%     → score = attendanceRate
 Talktime       → benchmark 240s     → score = (avgTalktime ÷ 240) × 100
 ```
@@ -243,7 +231,7 @@ Talktime       → benchmark 240s     → score = (avgTalktime ÷ 240) × 100
 ---
 
 ## 📄 FILE 5: `exporter.js`
-**Role**: Data download karna (CSV, Excel, PDF)
+**Role**: Download data as CSV, Excel, or PDF
 
 ### Global Variable:
 ```js
@@ -253,24 +241,24 @@ window.ReportExporter  // single instance
 ### Functions:
 
 #### `exportToCSV(data, filename)`
-- Data array ke headers se CSV string banata hai
-- Blob create karta hai → `<a>` element ke through download trigger karta hai
-- Always exports **filtered data** (jo `dp.filteredDataset` se aata hai)
+- Builds CSV string from data array headers
+- Creates Blob → triggers download via `<a>` element
+- Always exports **filtered data** from `dp.filteredDataset`
 
 #### `exportToExcel(data, filename)`
-- SheetJS `XLSX.utils.json_to_sheet()` use karta hai
-- Auto-fit column widths (max 30 chars)
-- Agar XLSX library load nahi → CSV pe fallback
+- Uses SheetJS `XLSX.utils.json_to_sheet()`
+- Auto-fits column widths (max 30 chars)
+- Falls back to CSV if XLSX library not loaded
 
 #### `exportToPDF(viewId, title)`
-- `document.title` temporarily change karta hai (PDF filename ke liye)
-- `window.print()` trigger karta hai → browser print dialog khulta hai
-- `styles.css` mein `@media print` rules apply hoti hain
+- Temporarily changes `document.title` (becomes the PDF filename)
+- Triggers `window.print()` → browser print dialog
+- `@media print` rules in `styles.css` apply
 
 ---
 
 ## 📄 FILE 6: `mock-data.js`
-**Role**: Demo data generate karna jab real Excel file na ho
+**Role**: Generate demo data when no real Excel file is loaded
 
 ### Global Variables:
 ```js
@@ -294,48 +282,48 @@ window.MOCK_COUNSELLORS   // counsellor profiles array
 
 ### `generateMockData(startDate, endDate)`
 - Default: June 1–17, 2026
-- Har counsellor ke liye har din ek row banata hai
-- Attendance random: weekends pe mostly Absent
-- Calls formula: `baseDialled = (70 + random×30) × dialledMultiplier × attendanceMultiplier`
-- Admissions formula: `Poisson-like` = `floor(connected × closingRate + (random - 0.35) × 1.5)`
+- One row per counsellor per day
+- Attendance random (weekends mostly Absent)
+- Calls: `baseDialled = (70 + random×30) × dialledMultiplier × attendanceMultiplier`
+- Admissions: Poisson-like = `floor(connected × closingRate + (random - 0.35) × 1.5)`
 - EMI = 60% of admissions, Full Payment = 40%
 
 ---
 
 ## 📄 FILE 7: `app.js`
-**Role**: Sab kuch connect karta hai — routing, events, rendering
+**Role**: Connects everything — routing, events, rendering
 
-### Global Variables used:
+### Global Variables Used:
 ```js
-const dp = window.DataProcessor;
-const ae = window.AnalyticsEngine;
-const ce = window.ChartingEngine;
+const dp  = window.DataProcessor;
+const ae  = window.AnalyticsEngine;
+const ce  = window.ChartingEngine;
 const exp = window.ReportExporter;
 ```
 
-### App State Variables:
+### App State:
 ```js
-let activeView = "view-executive";  // current page
-let activeRole = "manager";         // role permission level
-let activeCounsellorEmail = "";     // currently selected counsellor
-let insightsInterval = null;        // ticker interval handle
+let activeView           = "view-executive";  // current page
+let activeRole           = "manager";         // role permission level
+let activeCounsellorEmail = "";               // currently selected counsellor
+let insightsInterval     = null;              // ticker interval handle
 ```
 
 ### Key Functions:
 
 #### `init()`
-- Upload overlay dikhata hai
-- "Or Load Demo Mock Data" button inject karta hai
-- `bindEvents()` call karta hai
+- Shows upload overlay
+- Injects "Or Load Demo Mock Data" button
+- Calls `bindEvents()`
 
 #### `finishInit()`
-- Data load hone ke baad call hota hai
-- Date filters set karta hai (min/max of data)
-- Dropdowns populate karta hai
-- `renderActiveView()` call karta hai
+- Called after data loads
+- Sets date filter min/max from data
+- Populates dropdowns
+- Calls `renderActiveView()`
 
 #### `bindEvents()`
-- Sab HTML elements ke saath event listeners connect karta hai:
+- Connects all HTML elements to event listeners:
   - Sidebar nav links → `switchView()`
   - Date/filter dropdowns → `dp.setFilter()` → `onFiltersChanged()`
   - File input → `dp.parseExcelFile()`
@@ -343,13 +331,10 @@ let insightsInterval = null;        // ticker interval handle
   - Sheet modal buttons → `dp.loadSheets()`
 
 #### `switchView(targetView)`
-- Active section show/hide karta hai
-- Sidebar active class toggle karta hai
-- Role restriction check karta hai
-- `renderActiveView()` call karta hai
-
-#### `renderActiveView()`
-- Switch statement se sahi render function call karta hai
+- Shows/hides active section
+- Toggles sidebar active class
+- Checks role restriction
+- Calls `renderActiveView()`
 
 #### View Render Functions:
 | Function | View | Key Logic |
@@ -365,36 +350,32 @@ let insightsInterval = null;        // ticker interval handle
 | `renderRecommendationsView()` | Recommendations | Prioritized action cards |
 
 #### `normalizeCounsellorDimensions(c)`
-- Radar ke liye 6 metrics ko 0-100 scale pe normalize karta hai
+- Normalizes 6 metrics to 0–100 scale for radar chart
 - Benchmarks: Dials=80, Reachability=50%, Engagement=100%, Closing=10%, Attendance=100%, Talktime=240s
 
 #### `generateAISummaryText(c, risk, diagnostics, predictor)`
 - Green risk → positive summary with targets
-- Red/Yellow risk → bottleneck + action plan text
+- Red/Yellow risk → bottleneck + action plan
 
 #### `generateAIInsightsList()`
-- 4 types ke insights:
-  1. High risk count alert
-  2. Best vs 2nd best campaign comparison
-  3. Reachability alert (if < 45%)
-  4. Underperforming counsellors with premium leads
+- 4 types of insights: high risk count, campaign comparison, reachability alert, underperforming with premium leads
 
 #### `openProfileDrawer(email)`
-- 360° slide-in drawer populate karta hai
-- Risk gauge render karta hai
-- Diagnostics cards build karta hai
-- `renderDrawerTrendChart()` call karta hai
+- Populates the 360° slide-in drawer
+- Renders risk gauge
+- Builds diagnostics cards
+- Calls `renderDrawerTrendChart()`
 
 #### `renderDrawerTrendChart()`
-- `drawerChartType === "daily"` → real daily records show
-- `drawerChartType === "hourly"` → `dp.getHourByHourData()` (SIMULATED) call karta hai
+- `drawerChartType === "daily"` → shows real daily records
+- `drawerChartType === "hourly"` → calls `dp.getHourByHourData()` (**SIMULATED**)
 
 ---
 
 ## 📄 FILE 8: `styles.css`
-**Role**: Poora dark mode UI design
+**Role**: Complete dark mode UI design
 
-### CSS Custom Properties (Variables):
+### CSS Custom Properties:
 ```css
 --bg-primary        /* dark background */
 --bg-secondary      /* card background */
@@ -424,7 +405,115 @@ let insightsInterval = null;        // ticker interval handle
 
 ---
 
-## 📄 FILE 9: `mock-data.js` → Already covered in FILE 6 above
+## 🐍 FILE 9: `clean_dod_data.py`
+**Role**: Production-grade in-memory data cleaning pipeline for `May dod data .xlsx`
+
+### Version: `v2.0`
+
+### Strict Guarantees:
+- ✅ **NO DISK WRITES** — Excel file is never touched or overwritten
+- ✅ **NO DATA LOSS** — 0 rows dropped; `dropna()` never called on rows
+- ✅ **IN-MEMORY ONLY** — all transforms in RAM
+- ✅ **SAFE NUMERICS** — `pd.to_numeric(errors='coerce').fillna(0)`
+- ✅ **SAFE DATES** — `pd.to_datetime(errors='coerce')` → NaT on bad cells
+- ✅ **GHOST TIMELINE FIX** — date axis clamped to `2026-04-01 → 2026-05-31`
+
+### Pipeline Order (per sheet):
+```
+1. _clean_column_names()          Strip spaces + embedded \n from headers
+2. _drop_fully_empty_unnamed_columns()  Remove structural padding cols
+3. _deduplicate_columns()         Rename duplicate column names with suffix
+4. _normalise_date_column()       Auto-detect + rename date alias → 'Date'
+5. _normalise_email()             Lowercase + strip; handle 'Counsellor Email' variant
+6. _clean_text_columns()          Strip + collapse whitespace on text cols
+7. _clean_numeric_columns()       Coerce to float64, fillna(0)
+8. _clean_date_columns()          Parse date cols, bad values → NaT
+9. apply_date_window_clamp()      Add __date_in_window__ + __axis_date__
+10. Header-bleed guard            Remove rows where Manager == 'Manager'
+11. Tag __source_sheet__          Provenance column added
+```
+
+### Sheet Loading Strategy:
+| Sheet | Method |
+|---|---|
+| **Sheet1** | Has header row → `header=0`, normal load |
+| **Sheet2** | No header row → `header=None`, columns assigned from `CANONICAL_COLUMNS` by position |
+
+### Public API Functions:
+| Function | Description |
+|---|---|
+| `load_and_clean_dod_data(file_path)` | Returns `Dict[sheet_name → cleaned_DataFrame]` |
+| `get_merged_dataframe(file_path)` | Loads + merges all sheets into one DataFrame |
+| `get_all_managers(df)` | Sorted list of unique manager names |
+| `get_counselors_by_manager(df, manager)` | Cascading filter — counsellors under a manager |
+| `get_counselors_by_team_lead(df, tl)` | Cascading filter — counsellors under a TL |
+| `build_cascade_map(df)` | Pre-computes full Manager → [emails] dict for O(1) lookups |
+| `apply_date_window_clamp(df)` | Adds clamped date columns for Ghost Timeline fix |
+| `get_date_axis_bounds(df)` | Returns safe (min, max) for chart x-axis |
+| `get_render_ready_aggregates(df)` | Pre-computed KPI dict for dashboard widgets |
+| `get_daily_trend(df)` | Date-aggregated trend DataFrame for chart rendering |
+| `get_pipeline_quality_report(sheets)` | Data health dict: null counts, row counts per sheet |
+
+---
+
+## 🐍 FILE 10: `dashboard_intelligence.py`
+**Role**: 4-feature Python analytics engine for offline reporting
+
+### Column Consolidation Helpers:
+| Function | Description |
+|---|---|
+| `pick_col(df, *candidates)` | Returns first matching column (case-insensitive) |
+| `consolidate_column(df, target, aliases)` | Sums aliased columns row-wise; returns zeros if none found |
+| `get_standardized_df(df)` | Returns standardized DataFrame with resolved KPI columns |
+
+### Core Features:
+
+#### Feature 1: `mom_comparison(current_df, previous_df)`
+- Aggregates both months by counsellor
+- Outer join to capture all counsellors from either month
+- Calculates MoM % change for: Total Adm, Talktime, Dialled Calls
+- Returns growth labels: `▲ +X%` / `▼ -X%` / `■ 0.0%`
+
+#### Feature 2: `generate_coaching_recommendations(df)`
+- Rules applied per row:
+  - Talktime < 3h AND Dials > 100 → "Focus on Call Efficiency"
+  - Admissions == 0 AND Effective > 50 → "Focus on Closing Techniques"
+  - Else → "Maintain consistency & monitor progress"
+- Auto-scales Talktime: detects seconds (>1000) or minutes (>24) and converts to hours
+- Returns copy of df with new `Coaching_Tip` column
+
+#### Feature 3: `forecast_admissions_and_revenue(df)`
+- Aggregates daily team admissions
+- Fills timeline calendar gaps with 0
+- Computes 15-day Simple Moving Average (SMA)
+- Projects next 7 days at that constant rate
+- Returns `{ Date, Forecasted_Admissions, Forecasted_Revenue_Potential }`
+
+#### Feature 4: `compare_counsellors(email1, email2, df)`
+- Loads `clean_data.json` if no df passed
+- Sums all KPIs for each counsellor
+- Computes ratios: Connect Rate %, Effective Ratio %, Conversion Rate %, Revenue Potential
+- Returns delta report: `{ KPI, C1_Value, C2_Value, Absolute Delta, Percentage Delta (%) }`
+
+#### Helper: `style_growth_report(df)`
+- Pandas Styler with green/red color coding for growth labels
+- Useful in Jupyter notebooks or Streamlit dashboards
+
+---
+
+## 🐍 FILE 11: `generate_clean_json.py`
+**Role**: CLI script to generate `clean_data.json` from Excel
+
+### What it does:
+1. Checks for `May dod data .xlsx`
+2. Calls `get_merged_dataframe()` from `clean_dod_data.py`
+3. Converts date columns to `%Y-%m-%d` string format for JSON serialization
+4. Writes `clean_data.json` with `orient="records"`, indent=2
+
+### Usage:
+```bash
+python generate_clean_json.py
+```
 
 ---
 
@@ -463,6 +552,25 @@ User clicks Export CSV
   → exp.exportToCSV(dp.filteredDataset)
 ```
 
+### Python Pipeline Flow:
+```
+May dod data .xlsx
+       ↓
+generate_clean_json.py
+  → clean_dod_data.get_merged_dataframe()
+  → _load_sheet_raw() per sheet
+  → _clean_sheet() per sheet (10-step pipeline)
+  → pd.concat() all sheets
+       ↓
+clean_data.json (~7.8 MB)
+       ↓
+dashboard_intelligence.py (reads clean_data.json)
+  → mom_comparison()           (MoM analysis)
+  → generate_coaching_recommendations()
+  → forecast_admissions_and_revenue()
+  → compare_counsellors()
+```
+
 ---
 
 ## ⚡ Quick Reference: Which File to Edit for What
@@ -471,9 +579,12 @@ User clicks Export CSV
 |---|---|
 | Colors, fonts, layout | `styles.css` |
 | A dashboard view HTML | `index.html` |
-| How Excel columns are read | `data-processor.js` → `cleanRow()` |
-| A calculation / formula | `analytics-engine.js` |
+| How Excel columns are read (browser) | `data-processor.js` → `cleanRow()` |
+| A calculation / formula (browser) | `analytics-engine.js` |
 | A chart appearance | `charts.js` |
 | Which views appear / routing | `app.js` → `switchView()` |
 | Export file name | `exporter.js` |
 | Demo data profiles | `mock-data.js` → `MOCK_COUNSELLORS` |
+| How Excel sheets are cleaned (Python) | `clean_dod_data.py` → `_clean_sheet()` |
+| Python analytics / MoM / Forecast | `dashboard_intelligence.py` |
+| Regenerate clean_data.json | Run `python generate_clean_json.py` |
