@@ -1002,6 +1002,16 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("view-title").textContent = viewMeta[targetView].title;
     document.getElementById("view-subtitle").textContent = viewMeta[targetView].subtitle;
 
+    // Show/hide view-specific header controls
+    const teamTrendsFilters = document.getElementById("team-trends-filters");
+    if (teamTrendsFilters) {
+      if (targetView === "view-team-trends") {
+        teamTrendsFilters.style.display = "block";
+      } else {
+        teamTrendsFilters.style.display = "none";
+      }
+    }
+
     // Trigger rendering of specific view
     renderActiveView();
   }
@@ -2115,48 +2125,90 @@ document.addEventListener("DOMContentLoaded", () => {
     const metric = document.getElementById("trend-metric").value;
     const period = document.getElementById("trend-period").value;
 
-    // Group data by the selected dimension
-    const groups = {};
+    // Group data by time period first, then by team dimension
+    // We need to access the raw daily records to get date information
+    const timePeriodGroups = {};
 
     breakdown.forEach(counsellor => {
-      let groupKey = "Unknown";
-      if (groupBy === "lead") {
-        groupKey = counsellor.teamLead || "No Team Lead";
-      } else if (groupBy === "manager") {
-        groupKey = counsellor.manager || "No Manager";
-      } else if (groupBy === "campaign") {
-        groupKey = counsellor.campaign || "No Campaign";
-      } else if (groupBy === "band") {
-        groupKey = counsellor.band || "No Band";
-      }
+      // Process each daily record for this counsellor to get dates
+      if (counsellor.rawRecords && counsellor.rawRecords.length > 0) {
+        counsellor.rawRecords.forEach(record => {
+          // Determine time period key based on selection
+          let periodKey = "Unknown";
+          if (record.date) {
+            const date = new Date(record.date);
+            if (period === "weekly") {
+              // Format as Year-WWeek (e.g., 2026-W25)
+              const year = date.getFullYear();
+              // Get week number (simple approach: week of year)
+              const jan1 = new Date(year, 0, 1);
+              const daysPassed = Math.floor((date - jan1) / (24 * 60 * 60 * 1000));
+              const weekNumber = Math.ceil((daysPassed + 1) / 7);
+              periodKey = `${year}-W${weekNumber.toString().padStart(2, '0')}`;
+            } else if (period === "monthly") {
+              // Format as Year-MM (e.g., 2026-06)
+              const year = date.getFullYear();
+              const month = String(date.getMonth() + 1).padStart(2, '0');
+              periodKey = `${year}-${month}`;
+            } else {
+              // Default to monthly if unknown period
+              const year = date.getFullYear();
+              const month = String(date.getMonth() + 1).padStart(2, '0');
+              periodKey = `${year}-${month}`;
+            }
+          } else {
+            periodKey = "No Date";
+          }
 
-      if (!groups[groupKey]) {
-        groups[groupKey] = [];
-      }
+          // Determine team dimension key from the counsellor's metadata
+          let teamKey = "Unknown";
+          if (groupBy === "lead") {
+            teamKey = counsellor.teamLead || "No Team Lead";
+          } else if (groupBy === "manager") {
+            teamKey = counsellor.manager || "No Manager";
+          } else if (groupBy === "campaign") {
+            teamKey = counsellor.campaign || "No Campaign";
+          } else if (groupBy === "band") {
+            teamKey = counsellor.band || "No Band";
+          }
 
-      groups[groupKey].push(counsellor);
+          // Create composite key: period-team
+          const compositeKey = `${periodKey}|${teamKey}`;
+
+          if (!timePeriodGroups[compositeKey]) {
+            timePeriodGroups[compositeKey] = {
+              period: periodKey,
+              team: teamKey,
+              records: []
+            };
+          }
+
+          timePeriodGroups[compositeKey].records.push(record);
+        });
+      }
     });
 
-    // Calculate aggregate metrics for each group
-    const groupMetrics = {};
+    // Calculate metrics for each time period + team combination
+    const periodTeamData = {};
 
-    Object.keys(groups).forEach(group => {
-      const members = groups[group];
+    Object.keys(timePeriodGroups).forEach(key => {
+      const group = timePeriodGroups[key];
+      const records = group.records;
 
-      // Calculate averages for the group
+      // Calculate totals for the group
       let totalAdmissions = 0;
       let totalConnected = 0;
       let totalDials = 0;
       let totalRiskScore = 0;
-      let count = members.length;
+      let count = records.length;
 
-      members.forEach(member => {
-        totalAdmissions += member.totalAdmissions || 0;
-        totalConnected += member.totalConnected || 0;
-        totalDials += member.totalDials || 0;
+      records.forEach(record => {
+        totalAdmissions += record.totalAdmissions || 0;
+        totalConnected += record.totalConnected || 0;
+        totalDials += record.totalDials || 0;
 
-        // Calculate risk score for each member
-        const risk = ae.calculateRiskScore(member);
+        // Calculate risk score for each record
+        const risk = ae.calculateRiskScore(record);
         totalRiskScore += risk.score;
       });
 
@@ -2176,23 +2228,83 @@ document.addEventListener("DOMContentLoaded", () => {
           break;
       }
 
-      groupMetrics[group] = {
+      // Store data by period and team
+      if (!periodTeamData[group.period]) {
+        periodTeamData[group.period] = {};
+      }
+      periodTeamData[group.period][group.team] = {
         value: metricValue,
         count: count
       };
     });
 
-    // Sort groups by value (descending)
-    const sortedGroups = Object.entries(groupMetrics)
-      .sort(([,a], [,b]) => b.value - a.value)
-      .map(([group, data]) => ({ group, ...data }));
+    // Get sorted periods (chronological order)
+    const sortedPeriods = Object.keys(periodTeamData).sort();
 
-    // Update table
+    // Get all unique teams across all periods
+    const allTeams = new Set();
+    Object.values(periodTeamData).forEach(periodData => {
+      Object.keys(periodData).forEach(team => allTeams.add(team));
+    });
+    const sortedTeams = Array.from(allTeams).sort();
+
+    // Prepare data for line chart - one line per team
+    const chartData = {
+      labels: sortedPeriods,
+      datasets: []
+    };
+
+    // Generate a dataset for each team
+    sortedTeams.forEach((team, index) => {
+      const dataPoints = sortedPeriods.map(period => {
+        // Return 0 if no data for this team in this period
+        return periodTeamData[period] && periodTeamData[period][team]
+          ? parseFloat(periodTeamData[period][team].value.toFixed(1))
+          : 0;
+      });
+
+      chartData.datasets.push({
+        label: team,
+        data: dataPoints,
+        borderColor: getChartColor(index),
+        backgroundColor: getChartColor(index, 0.2),
+        fill: false,
+        tension: 0.3,
+        borderWidth: 2
+      });
+    });
+
+    // Update table - show summary for each team across all periods
     const tableBody = document.getElementById("team-trends-table-body");
     tableBody.innerHTML = "";
 
-    sortedGroups.forEach((groupData, index) => {
-      const { group, value, count } = groupData;
+    // Calculate overall averages for each team across all periods
+    const teamSummary = {};
+    sortedTeams.forEach(team => {
+      let totalValue = 0;
+      let periodCount = 0;
+
+      sortedPeriods.forEach(period => {
+        if (periodTeamData[period] && periodTeamData[period][team]) {
+          totalValue += parseFloat(periodTeamData[period][team].value.toFixed(1));
+          periodCount++;
+        }
+      });
+
+      teamSummary[team] = {
+        avgValue: periodCount > 0 ? parseFloat((totalValue / periodCount).toFixed(1)) : 0,
+        periodCount: periodCount
+      };
+    });
+
+    // Sort teams by average value (descending)
+    const sortedTeamsByValue = Object.entries(teamSummary)
+      .sort(([,a], [,b]) => b.avgValue - a.avgValue)
+      .map(([team, data]) => ({ team, ...data }));
+
+    // Populate table
+    sortedTeamsByValue.forEach((teamData, index) => {
+      const { team, avgValue, periodCount } = teamData;
 
       // Determine status based on value (simplified)
       let status = "average";
@@ -2200,28 +2312,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (metric === "admissions" || metric === "dials") {
         // Higher is better for admissions and dials
-        if (value > 50) {
+        if (avgValue > 50) {
           status = "high";
           statusClass = "safe";
-        } else if (value < 20) {
+        } else if (avgValue < 20) {
           status = "low";
           statusClass = "critical";
         }
       } else if (metric === "conversion") {
         // Higher is better for conversion
-        if (value > 15) {
+        if (avgValue > 15) {
           status = "high";
           statusClass = "safe";
-        } else if (value < 5) {
+        } else if (avgValue < 5) {
           status = "low";
           statusClass = "critical";
         }
       } else if (metric === "risk") {
         // Lower is better for risk
-        if (value < 20) {
+        if (avgValue < 20) {
           status = "low";
           statusClass = "safe";
-        } else if (value > 40) {
+        } else if (avgValue > 40) {
           status = "high";
           statusClass = "critical";
         }
@@ -2229,9 +2341,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
       tableBody.innerHTML += `
         <tr>
-          <td style="font-weight:700; color:var(--accent-info);">${group}</td>
-          <td>${value.toFixed(1)}</td>
-          <td><span class="status-pill">${count} members</span></td>
+          <td style="font-weight:700; color:var(--accent-info);">${team}</td>
+          <td>${avgValue}</td>
+          <td><span class="status-pill">${periodCount} periods</span></td>
           <td>-</td>
           <td>-</td>
           <td><span class="status-pill ${statusClass}">${status}</span></td>
@@ -2239,25 +2351,14 @@ document.addEventListener("DOMContentLoaded", () => {
       `;
     });
 
-    // Create simple bar chart
+    // Create line chart for trends
     const ctx = document.getElementById("team-trends-chart").getContext("2d");
     if (window.teamTrendsChart) {
       window.teamTrendsChart.destroy();
     }
 
-    const chartData = {
-      labels: sortedGroups.map(g => g.group),
-      datasets: [{
-        label: getMetricLabel(metric),
-        data: sortedGroups.map(g => g.value),
-        backgroundColor: sortedGroups.map((g, i) => getChartColor(i, 0.5)),
-        borderColor: sortedGroups.map((g, i) => getChartColor(i)),
-        borderWidth: 1
-      }]
-    };
-
     window.teamTrendsChart = new Chart(ctx, {
-      type: 'bar',
+      type: 'line',
       data: chartData,
       options: {
         responsive: true,
@@ -2265,7 +2366,7 @@ document.addEventListener("DOMContentLoaded", () => {
         plugins: {
           title: {
             display: true,
-            text: `Team Performance by ${groupBy.charAt(0).toUpperCase() + groupBy.slice(1)} - ${getMetricLabel(metric)}`
+            text: `Team ${getMetricLabel(metric)} Trends by ${groupBy.charAt(0).toUpperCase() + groupBy.slice(1)} (${period === 'weekly' ? 'Weekly' : 'Monthly'})`
           },
           tooltip: {
             mode: 'index',
@@ -2283,7 +2384,7 @@ document.addEventListener("DOMContentLoaded", () => {
           x: {
             title: {
               display: true,
-              text: `${groupBy.charAt(0).toUpperCase() + groupBy.slice(1)}`
+              text: period === 'weekly' ? 'Week' : 'Month'
             }
           }
         }

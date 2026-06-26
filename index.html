@@ -177,7 +177,30 @@
               <option value="all">All Campaigns</option>
             </select>
           </div>
-          
+
+          <!-- Team Trends Filters (hidden by default) -->
+          <div class="filter-group" id="team-trends-filters" style="display:none;">
+            <span class="filter-label">Group By:</span>
+            <select id="trend-group-by" class="filter-select" style="width:100px; margin:0;">
+              <option value="lead">Team Lead</option>
+              <option value="manager">Manager</option>
+              <option value="campaign">Campaign</option>
+              <option value="band">Band</option>
+            </select>
+            <span class="filter-label">Metric:</span>
+            <select id="trend-metric" class="filter-select" style="width:100px; margin:0;">
+              <option value="admissions">Admissions</option>
+              <option value="conversion">Conversion</option>
+              <option value="dials">Dials</option>
+              <option value="risk">Risk Score</option>
+            </select>
+            <span class="filter-label">Period:</span>
+            <select id="trend-period" class="filter-select" style="width:80px; margin:0;">
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </div>
+
           <div class="filter-group">
             <span class="filter-label">View:</span>
             <label style="display:flex; align-items:center; gap:6px; font-size:0.75rem; color:var(--text-secondary); cursor:pointer;">
