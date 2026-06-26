@@ -247,8 +247,20 @@ def generate_coaching_recommendations(df: pd.DataFrame) -> pd.DataFrame:
     # Extract Series and coerce (standardized helper already converted to float)
     talk_vals = std_df["Talktime"]
     
+    # Check if the values are already in hours based on column names
+    orig_cols = [c.lower() for c in df.columns]
+    is_already_hours = any("talktime" in c and "hour" in c for c in orig_cols)
+    
+    # Statistical heuristic based on average call duration
+    if not is_already_hours and "Connected Calls" in std_df.columns:
+        tot_conn = std_df["Connected Calls"].sum()
+        if tot_conn > 0:
+            avg_talk = talk_vals.sum() / tot_conn
+            if avg_talk < 0.5:
+                is_already_hours = True
+    
     # Auto-Heuristic: Convert Talktime to Hours if represented in seconds or minutes
-    if talk_vals.max() > 24:
+    if not is_already_hours and talk_vals.max() > 24:
         if talk_vals.max() > 1000:
             # Scale seconds to hours
             logger.info("  ↳ Talktime auto-scaled: detected seconds → converting to hours.")

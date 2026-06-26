@@ -76,7 +76,8 @@ document.addEventListener("DOMContentLoaded", () => {
     "view-risk": { title: "AI Risk Prediction Engine", subtitle: "Target gap projections and target miss probabilities" },
     "view-lead-quality": { title: "Lead Quality Intelligence", subtitle: "Expected vs actual conversion matching lead quality mixes" },
     "view-funnel": { title: "Funnel Analysis", subtitle: "Lead stage drop-off analysis and pipeline recommendations" },
-    "view-recommendations": { title: "AI Recommendations Engine", subtitle: "Context-aware action plans for leads & coaching" }
+    "view-recommendations": { title: "AI Recommendations Engine", subtitle: "Context-aware action plans for leads & coaching" },
+    "view-team-trends": { title: "Team Performance Trends", subtitle: "Historical trends and performance analytics by team groupings" }
   };
 
   // --- INITIALIZATION ---
@@ -856,6 +857,29 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
 
+    // Team Trends View Controls
+    const trendGroupBy = document.getElementById("trend-group-by");
+    const trendMetric = document.getElementById("trend-metric");
+    const trendPeriod = document.getElementById("trend-period");
+
+    if (trendGroupBy) {
+      trendGroupBy.addEventListener("change", () => {
+        renderTeamTrendsView();
+      });
+    }
+
+    if (trendMetric) {
+      trendMetric.addEventListener("change", () => {
+        renderTeamTrendsView();
+      });
+    }
+
+    if (trendPeriod) {
+      trendPeriod.addEventListener("change", () => {
+        renderTeamTrendsView();
+      });
+    }
+
     // Mobile Navigation Drawer Toggle Handlers
     const sidebar = document.querySelector(".sidebar");
     const overlay = document.getElementById("sidebar-overlay");
@@ -1070,6 +1094,9 @@ document.addEventListener("DOMContentLoaded", () => {
         break;
       case "view-recommendations":
         renderRecommendationsView();
+        break;
+      case "view-team-trends":
+        renderTeamTrendsView();
         break;
     }
   }
@@ -2079,6 +2106,216 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
       `;
     });
+  }
+
+  // 10. Team Performance Trends View
+  function renderTeamTrendsView() {
+    const breakdown = dp.getCounsellorBreakdown();
+    const groupBy = document.getElementById("trend-group-by").value;
+    const metric = document.getElementById("trend-metric").value;
+    const period = document.getElementById("trend-period").value;
+
+    // Group data by the selected dimension
+    const groups = {};
+
+    breakdown.forEach(counsellor => {
+      let groupKey = "Unknown";
+      if (groupBy === "lead") {
+        groupKey = counsellor.teamLead || "No Team Lead";
+      } else if (groupBy === "manager") {
+        groupKey = counsellor.manager || "No Manager";
+      } else if (groupBy === "campaign") {
+        groupKey = counsellor.campaign || "No Campaign";
+      } else if (groupBy === "band") {
+        groupKey = counsellor.band || "No Band";
+      }
+
+      if (!groups[groupKey]) {
+        groups[groupKey] = [];
+      }
+
+      groups[groupKey].push(counsellor);
+    });
+
+    // Calculate aggregate metrics for each group
+    const groupMetrics = {};
+
+    Object.keys(groups).forEach(group => {
+      const members = groups[group];
+
+      // Calculate averages for the group
+      let totalAdmissions = 0;
+      let totalConnected = 0;
+      let totalDials = 0;
+      let totalRiskScore = 0;
+      let count = members.length;
+
+      members.forEach(member => {
+        totalAdmissions += member.totalAdmissions || 0;
+        totalConnected += member.totalConnected || 0;
+        totalDials += member.totalDials || 0;
+
+        // Calculate risk score for each member
+        const risk = ae.calculateRiskScore(member);
+        totalRiskScore += risk.score;
+      });
+
+      let metricValue = 0;
+      switch (metric) {
+        case "admissions":
+          metricValue = totalAdmissions / count;
+          break;
+        case "conversion":
+          metricValue = totalConnected > 0 ? (totalAdmissions / totalConnected) * 100 : 0;
+          break;
+        case "dials":
+          metricValue = totalDials / count;
+          break;
+        case "risk":
+          metricValue = totalRiskScore / count;
+          break;
+      }
+
+      groupMetrics[group] = {
+        value: metricValue,
+        count: count
+      };
+    });
+
+    // Sort groups by value (descending)
+    const sortedGroups = Object.entries(groupMetrics)
+      .sort(([,a], [,b]) => b.value - a.value)
+      .map(([group, data]) => ({ group, ...data }));
+
+    // Update table
+    const tableBody = document.getElementById("team-trends-table-body");
+    tableBody.innerHTML = "";
+
+    sortedGroups.forEach((groupData, index) => {
+      const { group, value, count } = groupData;
+
+      // Determine status based on value (simplified)
+      let status = "average";
+      let statusClass = "secondary";
+
+      if (metric === "admissions" || metric === "dials") {
+        // Higher is better for admissions and dials
+        if (value > 50) {
+          status = "high";
+          statusClass = "safe";
+        } else if (value < 20) {
+          status = "low";
+          statusClass = "critical";
+        }
+      } else if (metric === "conversion") {
+        // Higher is better for conversion
+        if (value > 15) {
+          status = "high";
+          statusClass = "safe";
+        } else if (value < 5) {
+          status = "low";
+          statusClass = "critical";
+        }
+      } else if (metric === "risk") {
+        // Lower is better for risk
+        if (value < 20) {
+          status = "low";
+          statusClass = "safe";
+        } else if (value > 40) {
+          status = "high";
+          statusClass = "critical";
+        }
+      }
+
+      tableBody.innerHTML += `
+        <tr>
+          <td style="font-weight:700; color:var(--accent-info);">${group}</td>
+          <td>${value.toFixed(1)}</td>
+          <td><span class="status-pill">${count} members</span></td>
+          <td>-</td>
+          <td>-</td>
+          <td><span class="status-pill ${statusClass}">${status}</span></td>
+        </tr>
+      `;
+    });
+
+    // Create simple bar chart
+    const ctx = document.getElementById("team-trends-chart").getContext("2d");
+    if (window.teamTrendsChart) {
+      window.teamTrendsChart.destroy();
+    }
+
+    const chartData = {
+      labels: sortedGroups.map(g => g.group),
+      datasets: [{
+        label: getMetricLabel(metric),
+        data: sortedGroups.map(g => g.value),
+        backgroundColor: sortedGroups.map((g, i) => getChartColor(i, 0.5)),
+        borderColor: sortedGroups.map((g, i) => getChartColor(i)),
+        borderWidth: 1
+      }]
+    };
+
+    window.teamTrendsChart = new Chart(ctx, {
+      type: 'bar',
+      data: chartData,
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          title: {
+            display: true,
+            text: `Team Performance by ${groupBy.charAt(0).toUpperCase() + groupBy.slice(1)} - ${getMetricLabel(metric)}`
+          },
+          tooltip: {
+            mode: 'index',
+            intersect: false,
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            title: {
+              display: true,
+              text: getMetricLabel(metric)
+            }
+          },
+          x: {
+            title: {
+              display: true,
+              text: `${groupBy.charAt(0).toUpperCase() + groupBy.slice(1)}`
+            }
+          }
+        }
+      }
+    });
+  }
+
+  function getChartColor(index, opacity = 1) {
+    const colors = [
+      'rgba(255, 99, 132',
+      'rgba(54, 162, 235',
+      'rgba(255, 205, 86',
+      'rgba(75, 192, 192',
+      'rgba(153, 102, 255',
+      'rgba(255, 159, 64',
+      'rgba(199, 199, 199',
+      'rgba(83, 102, 255',
+      'rgba(40, 200, 120',
+      'rgba(210, 105, 30'
+    ];
+    const color = colors[index % colors.length];
+    return opacity === 1 ? color + ')' : color + ',' + opacity + ')';
+  }
+
+  function getMetricLabel(metric) {
+    switch (metric) {
+      case "admissions": return "Average Admissions";
+      case "conversion": return "Conversion Rate (%)";
+      case "dials": return "Average Daily Dials";
+      case "risk": return "Average Risk Score";
+      default: return metric;
+    }
   }
 
   function getStoredTasks() {

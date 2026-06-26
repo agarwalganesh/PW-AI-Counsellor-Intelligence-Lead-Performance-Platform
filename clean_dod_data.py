@@ -223,20 +223,21 @@ def _clean_text_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 def _normalise_email(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Lowercase + strip the Counselor Email column (primary key).
+    Lowercase + strip Counselor Email, Team Lead, and Manager columns.
     Auto-detects British spelling 'Counsellor Email' and renames it.
     """
     if "Counsellor Email" in df.columns and "Counselor Email" not in df.columns:
         df.rename(columns={"Counsellor Email": "Counselor Email"}, inplace=True)
 
-    if "Counselor Email" in df.columns:
-        df["Counselor Email"] = (
-            df["Counselor Email"]
-            .astype(str)
-            .str.strip()
-            .str.lower()
-            .replace("nan", "", regex=False)
-        )
+    for col in ["Counselor Email", "Team Lead", "Manager"]:
+        if col in df.columns:
+            df[col] = (
+                df[col]
+                .astype(str)
+                .str.strip()
+                .str.lower()
+                .replace("nan", "", regex=False)
+            )
     return df
 
 
@@ -584,7 +585,9 @@ def _load_sheet_raw(
 
     # Resolve Excel error tokens → NaN so numeric coercion handles them cleanly
     EXCEL_ERRORS = {"#REF!", "#DIV/0!", "#N/A", "#VALUE!", "#NAME?", "#NUM!", "#NULL!"}
-    df.replace(list(EXCEL_ERRORS), pd.NA, inplace=True)
+    df.replace(list(
+        
+    ), pd.NA, inplace=True)
 
     return df
 
@@ -713,24 +716,29 @@ def get_render_ready_aggregates(df: pd.DataFrame) -> Dict:
 
     Returns a flat dict of KPI values safe to pass directly to chart widgets.
     """
-    num = lambda col: df[col].sum() if col in df.columns else 0
+    def num(*candidates: str) -> float:
+        total = 0.0
+        for col in candidates:
+            if col in df.columns:
+                total += df[col].sum()
+        return total
 
-    total_connected = num("Connected calls") or num("Connected Calls")
-    total_admissions = num("Total admissions") or num("Total Admissions") or num("Total Adm")
+    total_connected = num("Connected calls", "Connected Calls")
+    total_admissions = num("Total admissions", "Total Admissions", "Total Adm")
     total_connected_safe = total_connected if total_connected > 0 else 1  # avoid /0
 
     return {
         # Volume KPIs
         "total_dialled":      num("Dialled Calls"),
         "total_connected":    total_connected,
-        "total_effective":    num("Effective calls") or num("Effective Calls"),
+        "total_effective":    num("Effective calls", "Effective Calls"),
         "total_talktime_hrs": round(num("Talktime (In hours)"), 2),
         "total_admissions":   total_admissions,
-        "total_shared_adm":   num("Shared admissions") or num("Shared Admissions"),
+        "total_shared_adm":   num("Shared admissions", "Shared Admissions"),
         "total_additional":   num("Additional Adm"),
         "total_form_filled":  num("Total Adm(form Filled)"),
         "total_emi":          num("EMI Paid"),
-        "total_spot_pay":     num("Full Payment On spot") or num("Full Payment On Spot"),
+        "total_spot_pay":     num("Full Payment On spot", "Full Payment On Spot"),
         "total_auto_dial":    num("Auto Dial"),
         "total_manual_dial":  num("Manual Dial"),
         "total_ai":           num("AI"),
@@ -760,23 +768,32 @@ def get_daily_trend(df: pd.DataFrame) -> pd.DataFrame:
     if date_col not in df.columns:
         return pd.DataFrame()
 
-    col_dialled   = pick_col(df, "Dialled Calls")
-    col_connected = pick_col(df, "Connected calls", "Connected Calls")
-    col_effective = pick_col(df, "Effective calls", "Effective Calls")
-    col_adm       = pick_col(df, "Total admissions", "Total Admissions", "Total Adm")
-    col_talk      = pick_col(df, "Talktime (In hours)")
+    def sum_series(*candidates: str) -> pd.Series:
+        res = pd.Series(0.0, index=df.index)
+        for col in candidates:
+            if col in df.columns:
+                res += pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+        return res
+
+    temp_df = pd.DataFrame(index=df.index)
+    temp_df["date"] = df[date_col]
+    temp_df["dialled"] = sum_series("Dialled Calls")
+    temp_df["connected"] = sum_series("Connected calls", "Connected Calls")
+    temp_df["effective"] = sum_series("Effective calls", "Effective Calls")
+    temp_df["admissions"] = sum_series("Total admissions", "Total Admissions", "Total Adm")
+    temp_df["talktime_hrs"] = sum_series("Talktime (In hours)")
 
     agg = (
-        df.groupby(date_col, dropna=True)
+        temp_df.groupby("date", dropna=True)
         .agg(
-            dialled     =(col_dialled,   "sum"),
-            connected   =(col_connected, "sum"),
-            effective   =(col_effective, "sum"),
-            admissions  =(col_adm,       "sum"),
-            talktime_hrs=(col_talk,      "sum"),
+            dialled     =("dialled",   "sum"),
+            connected   =("connected", "sum"),
+            effective   =("effective", "sum"),
+            admissions  =("admissions", "sum"),
+            talktime_hrs=("talktime_hrs", "sum"),
         )
         .reset_index()
-        .rename(columns={date_col: "date"})
+        .rename(columns={"date": "date"})
         .sort_values("date")
     )
     agg["talktime_hrs"] = agg["talktime_hrs"].round(2)
