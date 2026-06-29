@@ -1072,121 +1072,228 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --- RENDERING ROUTINES ---
   function renderActiveView() {
-    if (document.getElementById("access-denied-overlay").style.display === "flex") return;
+    try {
+      // Check if access denied overlay is visible
+      const accessDeniedOverlay = document.getElementById("access-denied-overlay");
+      if (accessDeniedOverlay && accessDeniedOverlay.style.display === "flex") {
+        return;
+      }
 
-    switch (activeView) {
-      case "view-executive":
+      switch (activeView) {
+        case "view-executive":
+          renderExecutiveView();
+          break;
+        case "view-performance":
+          renderPerformanceView();
+          break;
+        case "view-rankings":
+          // Get active button state for leaderboard type
+          const activeRankBtn = document.querySelector("[data-rank].active");
+          renderRankingsView(activeRankBtn ? activeRankBtn.getAttribute("data-rank") : "top");
+          break;
+        case "view-profile":
+          renderProfileView();
+          break;
+        case "view-team-compare":
+          const activeCompBtn = document.querySelector("[data-compare].active");
+          renderTeamCompareView(activeCompBtn ? activeCompBtn.getAttribute("data-compare") : "lead");
+          break;
+        case "view-risk":
+          renderRiskView();
+          break;
+        case "view-lead-quality":
+          renderLeadQualityView();
+          break;
+        case "view-funnel":
+          renderFunnelView();
+          break;
+        case "view-recommendations":
+          renderRecommendationsView();
+          break;
+        case "view-team-trends":
+          renderTeamTrendsView();
+          break;
+        default:
+          console.warn("Unknown view:", activeView);
+          // Default to executive view
+          activeView = "view-executive";
+          renderExecutiveView();
+      }
+    } catch (error) {
+      console.error("Error in renderActiveView:", error, { activeView });
+      // Show error message to user
+      const errorContainer = document.getElementById("error-container");
+      if (errorContainer) {
+        errorContainer.innerHTML = `
+          <div class="alert alert-danger">
+            <strong>Error loading view:</strong> ${error.message}
+          </div>
+        `;
+        errorContainer.style.display = "block";
+      }
+      // Fallback to executive view to try to recover
+      try {
+        activeView = "view-executive";
         renderExecutiveView();
-        break;
-      case "view-performance":
-        renderPerformanceView();
-        break;
-      case "view-rankings":
-        // Get active button state for leaderboard type
-        const activeRankBtn = document.querySelector("[data-rank].active");
-        renderRankingsView(activeRankBtn ? activeRankBtn.getAttribute("data-rank") : "top");
-        break;
-      case "view-profile":
-        renderProfileView();
-        break;
-      case "view-team-compare":
-        const activeCompBtn = document.querySelector("[data-compare].active");
-        renderTeamCompareView(activeCompBtn ? activeCompBtn.getAttribute("data-compare") : "lead");
-        break;
-      case "view-risk":
-        renderRiskView();
-        break;
-      case "view-lead-quality":
-        renderLeadQualityView();
-        break;
-      case "view-funnel":
-        renderFunnelView();
-        break;
-      case "view-recommendations":
-        renderRecommendationsView();
-        break;
-      case "view-team-trends":
-        renderTeamTrendsView();
-        break;
+      } catch (fallbackError) {
+        console.error("Error in fallback render:", fallbackError);
+        // Last resort - try to show a basic message
+        const mainContent = document.querySelector(".dashboard-view");
+        if (mainContent) {
+          mainContent.innerHTML = `
+            <div class="alert alert-danger">
+              <strong>Application Error:</strong> An unexpected error occurred. Please refresh the page.
+            </div>
+          `;
+        }
+      }
     }
   }
 
   // 1. Executive Dashboard View
   function renderExecutiveView() {
-    const aggr = dp.getAggregates();
-    const breakdown = dp.getCounsellorBreakdown();
+    try {
+      const aggr = dp.getAggregates();
+      const breakdown = dp.getCounsellorBreakdown();
 
-    // Calculate High Risk count
-    let highRiskCount = 0;
-    breakdown.forEach(c => {
-      const risk = ae.calculateRiskScore(c);
-      if (risk.category === "Red") highRiskCount++;
-    });
+      // Calculate High Risk count
+      let highRiskCount = 0;
+      breakdown.forEach(c => {
+        const risk = ae.calculateRiskScore(c);
+        if (risk && risk.category === "Red") highRiskCount++;
+      });
 
-    // Set KPI counters
-    document.getElementById("kpi-counsellors").textContent = aggr.totalCounsellors;
-    document.getElementById("kpi-admissions").textContent = aggr.totalAdmissions;
-    document.getElementById("kpi-conversion").textContent = `${aggr.conversionPercentage}%`;
-    document.getElementById("kpi-high-risk").textContent = highRiskCount;
-    
-    document.getElementById("kpi-admissions-target-gap").textContent = 
-      `Target: ${aggr.totalTarget} (${aggr.targetAchievement}% Achieved)`;
+      // Set KPI counters
+      const counsellorsEl = document.getElementById("kpi-counsellors");
+      const admissionsEl = document.getElementById("kpi-admissions");
+      const conversionEl = document.getElementById("kpi-conversion");
+      const highRiskEl = document.getElementById("kpi-high-risk");
 
-    const convTrendStatus = document.getElementById("kpi-conversion-status");
-    convTrendStatus.textContent = `${aggr.totalEffective} Effective / ${aggr.totalConnected} Connected`;
+      if (counsellorsEl) counsellorsEl.textContent = aggr.totalCounsellors || 0;
+      if (admissionsEl) admissionsEl.textContent = aggr.totalAdmissions || 0;
+      if (conversionEl) conversionEl.textContent = `${(aggr.conversionPercentage || 0)}%`;
+      if (highRiskEl) highRiskEl.textContent = highRiskCount;
 
-    const riskStatus = document.getElementById("kpi-high-risk-status");
-    riskStatus.textContent = highRiskCount > 0 ? `${highRiskCount} counsellors need coaching` : "All targets safe";
-    riskStatus.className = highRiskCount > 0 ? "kpi-trend down" : "kpi-trend up";
+      const targetGapEl = document.getElementById("kpi-admissions-target-gap");
+      if (targetGapEl) {
+        targetGapEl.textContent =
+          `Target: ${aggr.totalTarget || 0} (${(aggr.targetAchievement || 0)}% Achieved)`;
+      }
 
-    // Set Financial counters (Module 1)
-    const grossMarginEl = document.getElementById("kpi-gross-margin");
-    const grossMarginPctEl = document.getElementById("kpi-gross-margin-pct");
-    const operationalBurnEl = document.getElementById("kpi-operational-burn");
+      const convTrendStatus = document.getElementById("kpi-conversion-status");
+      if (convTrendStatus) {
+        convTrendStatus.textContent = `${(aggr.totalEffective || 0)} Effective / ${(aggr.totalConnected || 0)} Connected`;
+      }
 
-    if (grossMarginEl && grossMarginPctEl && operationalBurnEl) {
-      grossMarginEl.textContent = `₹${Math.round(aggr.grossMargin).toLocaleString()}`;
-      grossMarginPctEl.textContent = `${aggr.grossMarginPercentage}% Gross Margin`;
-      grossMarginPctEl.className = aggr.grossMarginPercentage >= 40 ? "kpi-trend up" : "kpi-trend down";
-      operationalBurnEl.textContent = `₹${Math.round(aggr.operationalBurn).toLocaleString()}`;
-    }
+      const riskStatus = document.getElementById("kpi-high-risk-status");
+      if (riskStatus) {
+        riskStatus.textContent = highRiskCount > 0 ? `${highRiskCount} counsellors need coaching` : "All targets safe";
+        riskStatus.className = highRiskCount > 0 ? "kpi-trend down" : "kpi-trend up";
+      }
 
-    // Systemic trend warning indicator (Module 1)
-    const dailyTrend = dp.getDailyTrend();
-    const trendAlert = document.getElementById("systemic-trend-alert");
-    if (trendAlert && dailyTrend.length >= 6) {
-      const mid = Math.floor(dailyTrend.length / 2);
-      const firstHalf = dailyTrend.slice(0, mid);
-      const secondHalf = dailyTrend.slice(mid);
-      
-      const firstAdmissions = firstHalf.reduce((s, t) => s + t.admissions, 0);
-      const firstConnected = firstHalf.reduce((s, t) => s + t.connected, 0);
-      const secondAdmissions = secondHalf.reduce((s, t) => s + t.admissions, 0);
-      const secondConnected = secondHalf.reduce((s, t) => s + t.connected, 0);
-      
-      const rate1 = firstConnected > 0 ? (firstAdmissions / firstConnected * 100) : 0;
-      const rate2 = secondConnected > 0 ? (secondAdmissions / secondConnected * 100) : 0;
-      
-      const drop = rate1 - rate2;
-      
-      if (drop > 5.0) {
-        trendAlert.style.display = "flex";
-        document.getElementById("systemic-trend-desc").textContent = `Macro conversion rate has dropped by ${drop.toFixed(1)}% (from ${rate1.toFixed(1)}% to ${rate2.toFixed(1)}%) between the first half and second half of the date range.`;
-      } else {
+      // Set Financial counters (Module 1)
+      const grossMarginEl = document.getElementById("kpi-gross-margin");
+      const grossMarginPctEl = document.getElementById("kpi-gross-margin-pct");
+      const operationalBurnEl = document.getElementById("kpi-operational-burn");
+
+      if (grossMarginEl && grossMarginPctEl && operationalBurnEl) {
+        try {
+          const grossMargin = Math.round(aggr.grossMargin || 0);
+          grossMarginEl.textContent = `₹${grossMargin.toLocaleString()}`;
+          grossMarginPctEl.textContent = `${(aggr.grossMarginPercentage || 0)}% Gross Margin`;
+          const marginClass = (aggr.grossMarginPercentage || 0) >= 40 ? "kpi-trend up" : "kpi-trend down";
+          if (grossMarginPctEl.className !== marginClass) {
+            // Remove any existing trend classes
+            grossMarginPctEl.className = grossMarginPctEl.className.replace(/kpi-trend\s+\w+/g, '').trim();
+            // Add the new class
+            if (marginClass) {
+              const classes = (grossMarginPctEl.className + ' ' + marginClass).trim();
+              grossMarginPctEl.className = classes;
+            }
+          }
+          operationalBurnEl.textContent = `₹${Math.round(aggr.operationalBurn || 0).toLocaleString()}`;
+        } catch (financeError) {
+          console.error("Error setting financial counters:", financeError);
+          // Set fallback values
+          if (grossMarginEl) grossMarginEl.textContent = "₹0";
+          if (grossMarginPctEl) {
+            g
+          }
+        }
+      }
+
+      // Systemic trend warning indicator (Module 1)
+      const dailyTrend = dp.getDailyTrend();
+      const trendAlert = document.getElementById("systemic-trend-alert");
+      if (trendAlert) {
+        try {
+          if (Array.isArray(dailyTrend) && dailyTrend.length >= 6) {
+            const mid = Math.floor(dailyTrend.length / 2);
+            const firstHalf = dailyTrend.slice(0, mid);
+            const secondHalf = dailyTrend.slice(mid);
+
+            const firstAdmissions = firstHalf.reduce((s, t) => s + (t.admissions || 0), 0);
+            const firstConnected = firstHalf.reduce((s, t) => s + (t.connected || 0), 0);
+            const secondAdmissions = secondHalf.reduce((s, t) => s + (t.admissions || 0), 0);
+            const secondConnected = secondHalf.reduce((s, t) => s + (t.connected || 0), 0);
+
+            const rate1 = firstConnected > 0 ? (firstAdmissions / firstConnected * 100) : 0;
+            const rate2 = secondConnected > 0 ? (secondAdmissions / secondConnected * 100) : 0;
+
+            const drop = rate1 - rate2;
+
+            if (drop > 5.0) {
+              trendAlert.style.display = "flex";
+              const descEl = document.getElementById("systemic-trend-desc");
+              if (descEl) {
+                descEl.textContent = `Macro conversion rate has dropped by ${drop.toFixed(1)}% (from ${rate1.toFixed(1)}% to ${rate2.toFixed(1)}%) between the first half and second half of the date range.`;
+              }
+            } else {
+              trendAlert.style.display = "none";
+            }
+          } else {
+            trendAlert.style.display = "none";
+          }
+        } catch (trendError) {
+          console.error("Error processing trend data:", trendError);
+          if (trendAlert) trendAlert.style.display = "none";
+        }
+      } else if (trendAlert) {
         trendAlert.style.display = "none";
       }
-    } else if (trendAlert) {
-      trendAlert.style.display = "none";
+
+      // Daily activity trend line
+      try {
+        ce.renderCallActivityTrend("exec-activity-chart", dailyTrend);
+      } catch (chartError) {
+        console.error("Error rendering activity chart:", chartError);
+      }
+
+      // Target Achievement cumulative path
+      try {
+        ce.renderTargetProgress("exec-target-chart", dailyTrend, aggr.totalTarget || 30);
+      } catch (targetChartError) {
+        console.error("Error rendering target chart:", targetChartError);
+      }
+
+      // Render Mini Lists
+      try {
+        renderExecMiniLists(breakdown);
+      } catch (miniListsError) {
+        console.error("Error rendering mini lists:", miniListsError);
+      }
+    } catch (error) {
+      console.error("Error in renderExecutiveView:", error);
+      // Show error in the executive view container
+      const execView = document.getElementById("view-executive");
+      if (execView) {
+        execView.innerHTML = `
+          <div class="alert alert-danger">
+            <strong>Error loading Executive Dashboard:</strong> ${error.message}
+          </div>
+        `;
+      }
     }
-
-    // Daily activity trend line
-    ce.renderCallActivityTrend("exec-activity-chart", dailyTrend);
-
-    // Target Achievement cumulative path
-    ce.renderTargetProgress("exec-target-chart", dailyTrend, aggr.totalTarget);
-
-    // Render Mini Lists
-    renderExecMiniLists(breakdown);
   }
 
   function renderExecMiniLists(breakdown) {

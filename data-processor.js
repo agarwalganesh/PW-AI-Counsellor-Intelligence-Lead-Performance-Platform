@@ -242,55 +242,91 @@ class DataProcessor {
   }
 
   normalizeNumber(value) {
-    if (value === null || value === undefined || value === "") return NaN;
-    if (typeof value === "number") return value;
-    const text = String(value).trim().replace(/,/g, "").replace(/\s+/g, "");
-    if (text.endsWith("%")) {
-      return parseFloat(text.slice(0, -1));
+    try {
+      if (value === null || value === undefined || value === "") return NaN;
+      if (typeof value === "number") return value;
+      const text = String(value).trim().replace(/,/g, "").replace(/\s+/g, "");
+      if (text === "") return NaN;
+      if (text.endsWith("%")) {
+        return parseFloat(text.slice(0, -1));
+      }
+      return parseFloat(text);
+    } catch (error) {
+      console.warn("Error in normalizeNumber:", value, error);
+      return NaN;
     }
-    return parseFloat(text);
   }
 
   parseIntegerField(value, fallback = 0) {
-    const parsed = Math.trunc(this.normalizeNumber(value));
-    return Number.isFinite(parsed) ? parsed : fallback;
+    try {
+      const parsed = Math.trunc(this.normalizeNumber(value));
+      return Number.isFinite(parsed) ? parsed : fallback;
+    } catch (error) {
+      console.warn("Error in parseIntegerField:", value, error);
+      return fallback;
+    }
   }
 
   parseFloatField(value, fallback = 0.0) {
-    const parsed = this.normalizeNumber(value);
-    return Number.isFinite(parsed) ? parsed : fallback;
+    try {
+      const parsed = this.normalizeNumber(value);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    } catch (error) {
+      console.warn("Error in parseFloatField:", value, error);
+      return fallback;
+    }
   }
 
   // Helper to convert Excel date formats safely
   parseExcelDate(excelDate) {
-    if (!excelDate) return "";
-    if (excelDate instanceof Date) {
-      return this.formatLocalDate(excelDate);
+    try {
+      if (!excelDate) return "";
+      if (excelDate instanceof Date) {
+        return this.formatLocalDate(excelDate);
+      }
+      if (typeof excelDate === "number") {
+        // Excel serial date number
+        const date = new Date((excelDate - 25569) * 86400 * 1000);
+        // Validate the date is reasonable (not too far in past/future)
+        if (isNaN(date.getTime()) || date.getFullYear() < 1900 || date.getFullYear() > 2100) {
+          return "";
+        }
+        return date.toISOString().split("T")[0];
+      }
+      // String matching
+      const strDate = String(excelDate).trim();
+      // Try YYYY-MM-DD
+      if (/^\d{4}-\d{2}-\d{2}$/.test(strDate)) return strDate;
+      // Try DD-MM-YYYY or DD/MM/YYYY
+      const dmyMatch = strDate.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+      if (dmyMatch) {
+        const day = parseInt(dmyMatch[1], 10);
+        const month = parseInt(dmyMatch[2], 10);
+        const year = parseInt(dmyMatch[3], 10);
+        // Validate date components
+        if (isNaN(day) || isNaN(month) || isNaN(year) ||
+            day < 1 || day > 31 || month < 1 || month > 12 || year < 1900 || year > 2100) {
+          return "";
+        }
+        const date = new Date(year, month - 1, day);
+        if (isNaN(date.getTime())) return "";
+        return `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+      }
+
+      // Fallback Javascript parse
+      const parsed = new Date(strDate);
+      if (!isNaN(parsed.getTime())) {
+        // Validate the date is reasonable
+        if (parsed.getFullYear() < 1900 || parsed.getFullYear() > 2100) {
+          return "";
+        }
+        return this.formatLocalDate(parsed);
+      }
+      return "";
+    } catch (error) {
+      console.warn("Error parsing date:", excelDate, error);
+      return "";
     }
-    if (typeof excelDate === "number") {
-      // Excel serial date number
-      const date = new Date((excelDate - 25569) * 86400 * 1000);
-      return date.toISOString().split("T")[0];
-    }
-    // String matching
-    const strDate = String(excelDate).trim();
-    // Try YYYY-MM-DD
-    if (/^\d{4}-\d{2}-\d{2}$/.test(strDate)) return strDate;
-    // Try DD-MM-YYYY or DD/MM/YYYY
-    const dmyMatch = strDate.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
-    if (dmyMatch) {
-      const day = dmyMatch[1].padStart(2, '0');
-      const month = dmyMatch[2].padStart(2, '0');
-      const year = dmyMatch[3];
-      return `${year}-${month}-${day}`;
-    }
-    
-    // Fallback Javascript parse
-    const parsed = new Date(strDate);
-    if (!isNaN(parsed.getTime())) {
-      return this.formatLocalDate(parsed);
-    }
-    return strDate;
   }
 
   formatLocalDate(date) {
@@ -302,144 +338,202 @@ class DataProcessor {
 
   // 2. SYSTEM VALUE MAPPING (Excel Key Safety) & Case Normalization
   cleanRow(row) {
-    const result = {};
+    try {
+      const result = {};
 
-    // Helper to get raw cell values safely
-    const getStringVal = (key, fallback = "") => {
-      const actualKey = Object.keys(row).find(k => k.trim().toLowerCase() === key.toLowerCase());
-      if (actualKey === undefined) return fallback;
-      const val = row[actualKey];
-      if (val === undefined || val === null) return fallback;
-      return String(val).trim();
-    };
+      // Helper to get raw cell values safely
+      const getStringVal = (key, fallback = "") => {
+        try {
+          if (!row || typeof row !== 'object') return fallback;
+          const actualKey = Object.keys(row).find(k => k && typeof k === 'string' && k.trim().toLowerCase() === key.toLowerCase());
+          if (actualKey === undefined) return fallback;
+          const val = row[actualKey];
+          if (val === undefined || val === null) return fallback;
+          return String(val).trim();
+        } catch (e) {
+          console.warn("Error in getStringVal for key:", key, e);
+          return fallback;
+        }
+      };
 
-    // Date columns — FIX: Added more column name variants (Reporting Date, Report Date, Day, Working Date)
-    result["Date"] = this.parseExcelDate(
-      row["Date"] || row["date"] || row["DATE"] ||
-      row["Reporting Date"] || row["Report Date"] ||
-      row["Day"] || row["Working Date"] || row["Dated"]
-    );
-    result["Joining date"] = this.parseExcelDate(row["Joining date"] || row["Joining Date"] || row["joining_date"] || row["DOJ"] || row["Date of Joining"]);
+      // Date columns — FIX: Added more column name variants (Reporting Date, Report Date, Day, Working Date)
+      result["Date"] = this.parseExcelDate(
+        row["Date"] || row["date"] || row["DATE"] ||
+        row["Reporting Date"] || row["Report Date"] ||
+        row["Day"] || row["Working Date"] || row["Dated"]
+      );
+      result["Joining date"] = this.parseExcelDate(row["Joining date"] || row["Joining Date"] || row["joining_date"] || row["DOJ"] || row["Date of Joining"]);
 
-    // Case Normalization: Lowercase counselor email, TL, and manager to resolve case-sensitivity errors
-    // FIX: Added 'Counsellor Email' (double-l British spelling) and more variants
-    result["Counselor Email"] = 
-      getStringVal("Counselor Email").toLowerCase() ||
-      getStringVal("Counsellor Email").toLowerCase() ||
-      getStringVal("counselor_email").toLowerCase() ||
-      getStringVal("counsellor_email").toLowerCase() ||
-      getStringVal("Email").toLowerCase() ||
-      getStringVal("email").toLowerCase() ||
-      getStringVal("Emp Email").toLowerCase() ||
-      getStringVal("Employee Email").toLowerCase() ||
-      getStringVal("Mail ID").toLowerCase() ||
-      getStringVal("mail_id").toLowerCase();
+      // Case Normalization: Lowercase counselor email, TL, and manager to resolve case-sensitivity errors
+      // FIX: Added 'Counsellor Email' (double-l British spelling) and more variants
+      result["Counselor Email"] =
+        getStringVal("Counselor Email").toLowerCase() ||
+        getStringVal("Counsellor Email").toLowerCase() ||
+        getStringVal("counselor_email").toLowerCase() ||
+        getStringVal("counsellor_email").toLowerCase() ||
+        getStringVal("Email").toLowerCase() ||
+        getStringVal("email").toLowerCase() ||
+        getStringVal("Emp Email").toLowerCase() ||
+        getStringVal("Employee Email").toLowerCase() ||
+        getStringVal("Mail ID").toLowerCase() ||
+        getStringVal("mail_id").toLowerCase();
 
-    // FIX: Auto-detect email — scan ALL columns for any value containing '@'
-    // This is the ultimate fallback if column name doesn't match any known variant
-    if (!result["Counselor Email"]) {
-      for (const key of Object.keys(row)) {
-        const v = String(row[key] || "").trim();
-        if (v.includes("@") && v.includes(".") && v.length > 5) {
-          result["Counselor Email"] = v.toLowerCase();
-          break;
+      // FIX: Auto-detect email — scan ALL columns for any value containing '@'
+      // This is the ultimate fallback if column name doesn't match any known variant
+      if (!result["Counselor Email"]) {
+        try {
+          for (const key of Object.keys(row)) {
+            const v = String(row[key] || "").trim();
+            if (v.includes("@") && v.includes(".") && v.length > 5) {
+              result["Counselor Email"] = v.toLowerCase();
+              break;
+            }
+          }
+        } catch (e) {
+          console.warn("Error in email auto-detection:", e);
         }
       }
-    }
 
-    result["Team Lead"] = getStringVal("Team Lead").toLowerCase() || getStringVal("team_lead").toLowerCase() || getStringVal("TL").toLowerCase() || getStringVal("TL Name").toLowerCase() || "n/a";
-    result["Manager"] = getStringVal("Manager").toLowerCase() || getStringVal("manager").toLowerCase() || "n/a";
-    
-    result["Campaign"] = getStringVal("Campaign") || getStringVal("campaign") || "N/A";
-    result["Band"] = getStringVal("Band") || getStringVal("band") || "Band B";
-    result["Status"] = getStringVal("Status") || getStringVal("status") || "Active";
-    result["Attendance"] = getStringVal("Attendance") || getStringVal("attendance") || "Present";
+      result["Team Lead"] = getStringVal("Team Lead").toLowerCase() || getStringVal("team_lead").toLowerCase() || getStringVal("TL").toLowerCase() || getStringVal("TL Name").toLowerCase() || "n/a";
+      result["Manager"] = getStringVal("Manager").toLowerCase() || getStringVal("manager").toLowerCase() || "n/a";
 
-    // Explicit Typecasting to prevent calculation failures as per Guideline 2
-    result["Dialled Calls"] = this.parseIntegerField(row["Dialled Calls"] || row["dialled_calls"] || row["Dialled calls"]);
-    
-    const connVal = this.parseIntegerField(row["Connected Calls"] || row["Connected calls"] || row["connected_calls"] || row["Connected Calls "]);
-    result["Connected Calls"] = connVal;
-    result["Connected calls"] = connVal; // support both casing variants
+      result["Campaign"] = getStringVal("Campaign") || getStringVal("campaign") || "N/A";
+      result["Band"] = getStringVal("Band") || getStringVal("band") || "Band B";
+      result["Status"] = getStringVal("Status") || getStringVal("status") || "Active";
+      result["Attendance"] = getStringVal("Attendance") || getStringVal("attendance") || "Present";
 
-    const effVal = this.parseIntegerField(row["Effective Calls"] || row["Effective calls"] || row["effective_calls"] || row["Effective Calls "]);
-    result["Effective Calls"] = effVal;
-    result["Effective calls"] = effVal; // support both casing variants
+      // Explicit Typecasting to prevent calculation failures as per Guideline 2
+      result["Dialled Calls"] = this.parseIntegerField(row["Dialled Calls"] || row["dialled_calls"] || row["Dialled calls"]);
 
-    result["Target"] = this.parseIntegerField(row["Target"] || row["target"] || row["Row Target"] || row["Daily Target"] || 30);
+      const connVal = this.parseIntegerField(row["Connected Calls"] || row["Connected calls"] || row["connected_calls"] || row["Connected Calls "]);
+      result["Connected Calls"] = connVal;
+      result["Connected calls"] = connVal; // support both casing variants
 
-    const admVal = this.parseIntegerField(row["Total Admissions"] || row["Total admissions"] || row["total_admissions"] || row["Total Adm"] || row["Admissions"]);
-    result["Total Admissions"] = admVal;
-    result["Total admissions"] = admVal; // support both casing variants
-    result["Total Adm"] = admVal;
+      const effVal = this.parseIntegerField(row["Effective Calls"] || row["Effective calls"] || row["effective_calls"] || row["Effective Calls "]);
+      result["Effective Calls"] = effVal;
+      result["Effective calls"] = effVal; // support both casing variants
 
-    const sharedVal = this.parseIntegerField(row["Shared Admissions"] || row["Shared admissions"] || row["shared_admissions"] || row["Shared Admission"]);
-    result["Shared Admissions"] = sharedVal;
-    result["Shared admissions"] = sharedVal; // support both casing variants
+      result["Target"] = this.parseIntegerField(row["Target"] || row["target"] || row["Row Target"] || row["Daily Target"] || 30);
 
-    result["Shared admissions Form Filled"] = this.parseIntegerField(row["Shared admissions Form Filled"] || row["Shared Admissions Form Filled"] || row["Shared adm Form Filled"]);
-    result["Additional Adm"] = this.parseIntegerField(row["Additional Adm"] || row["Additional Admissions"] || row["Additional Admissions "]);
-    result["Penalty"] = this.parseIntegerField(row["Penalty"] || row["penalty"]);
-    result["Total Adm(form Filled)"] = this.parseIntegerField(row["Total Adm(form Filled)"] || row["Total Admissions Form Filled"] || row["Total Adm Form Filled"]);
-    result["EMI Paid"] = this.parseIntegerField(row["EMI Paid"] || row["EMI paid"] || row["EMI"]);
-    
-    const spotVal = this.parseIntegerField(row["Full Payment On Spot"] || row["Full Payment On spot"] || row["full_payment_on_spot"] || row["Spot Payment"]);
-    result["Full Payment On Spot"] = spotVal;
-    result["Full Payment On spot"] = spotVal; // support both casings
+      const admVal = this.parseIntegerField(row["Total Admissions"] || row["Total admissions"] || row["total_admissions"] || row["Total Adm"] || row["Admissions"]);
+      result["Total Admissions"] = admVal;
+      result["Total admissions"] = admVal; // support both casing variants
+      result["Total Adm"] = admVal;
 
-    result["Auto Dial"] = this.parseIntegerField(row["Auto Dial"] || row["Auto dial"] || row["auto_dial"]);
-    result["Manual Dial"] = this.parseIntegerField(row["Manual Dial"] || row["Manual dial"] || row["manual_dial"]);
-    result["AI"] = this.parseIntegerField(row["AI"] || row["ai"] || row["Artificial Intelligence"]);
-    result["FY 27"] = this.parseIntegerField(row["FY 27"] || row["FY27"] || row["FY_27"]);
-    result["FY 26"] = this.parseIntegerField(row["FY 26"] || row["FY26"] || row["FY_26"]);
-    result["CJR"] = this.parseIntegerField(row["CJR"] || row["cjr"] || row["CJR "]);
-    
-    result["Counsellor discount"] = this.parseIntegerField(row["Counsellor discount"] || row["Counsellor Discount"] || row["Counsellor_Discount"]);
-    result["Counsellor discount-FY 27"] = this.parseIntegerField(row["Counsellor discount-FY 27"] || row["Counsellor discount FY 27"] || row["Counsellor discount-FY27"]);
-    result["Manager discount"] = this.parseIntegerField(row["Manager discount"] || row["Manager Discount"] || row["Manager_Discount"]);
-    result["Other Discount"] = this.parseIntegerField(row["Other Discount"] || row["Other discount"] || row["Other_Discount"]);
-    result["No. of days"] = this.parseIntegerField(row["No. of days"] || row["Number of days"] || row["No. of Days"] || row["Days Count"]);
-    result["VP Retention"] = this.parseIntegerField(row["VP Retention"] || row["VP Retention "] || row["VP_Retention"]);
-    result["CC/FT/Board"] = this.parseIntegerField(row["CC/FT/Board"] || row["CC/FT/Board "] || row["Board Count"]);
+      const sharedVal = this.parseIntegerField(row["Shared Admissions"] || row["Shared admissions"] || row["shared_admissions"] || row["Shared Admission"]);
+      result["Shared Admissions"] = sharedVal;
+      result["Shared admissions"] = sharedVal; // support both casing variants
 
-    // Float Columns — Talktime: try all known column name variants
-    const talktimeHoursRaw =
-      row["Talktime (In hours)"] ??
-      row["Talktime (in hours)"] ??
-      row["Talktime(hours)"] ??
-      row["Talktime (Hours)"] ??
-      row["talktime_hours"] ??
-      row["Talk Time Hours"] ??
-      null;
+      result["Shared admissions Form Filled"] = this.parseIntegerField(row["Shared admissions Form Filled"] || row["Shared Admissions Form Filled"] || row["Shared adm Form Filled"]);
+      result["Additional Adm"] = this.parseIntegerField(row["Additional Adm"] || row["Additional Admissions"] || row["Additional Admissions "]);
+      result["Penalty"] = this.parseIntegerField(row["Penalty"] || row["penalty"]);
+      result["Total Adm(form Filled)"] = this.parseIntegerField(row["Total Adm(form Filled)"] || row["Total Admissions Form Filled"] || row["Total Adm Form Filled"]);
+      result["EMI Paid"] = this.parseIntegerField(row["EMI Paid"] || row["EMI paid"] || row["EMI"]);
 
-    if (talktimeHoursRaw !== undefined && talktimeHoursRaw !== null && talktimeHoursRaw !== "") {
-      result["Talktime (In hours)"] = this.parseFloatField(talktimeHoursRaw, 0.0);
-    } else {
-      // Try seconds-based columns and convert to hours
-      const talktimeSeconds =
-        this.parseFloatField(row["Talktime"]) ||
-        this.parseFloatField(row["Talk Time"]) ||
-        this.parseFloatField(row["Talk time"]) ||
-        this.parseFloatField(row["talktime"]) ||
-        this.parseFloatField(row["TalkTime"]);
-      result["Talktime (In hours)"] = talktimeSeconds > 0 ? parseFloat((talktimeSeconds / 3600).toFixed(4)) : 0.0;
-    }
+      const spotVal = this.parseIntegerField(row["Full Payment On Spot"] || row["Full Payment On spot"] || row["full_payment_on_spot"] || row["Spot Payment"]);
+      result["Full Payment On Spot"] = spotVal;
+      result["Full Payment On spot"] = spotVal; // support both casings
 
-    const conversionPctRaw = row["Conversion %"] ?? row["Conversion"] ?? row["Conv %"] ?? row["Conversion Rate"];
-    if (conversionPctRaw !== undefined && conversionPctRaw !== null && conversionPctRaw !== "") {
-      const val = this.parseFloatField(conversionPctRaw, 0.0);
-      // If Excel stores fraction (e.g. 0.0339 representing 3.39%)
-      if (connVal > 0 && Math.abs(val - (admVal / connVal)) < 0.005) {
-        result["Conversion %"] = parseFloat(((admVal / connVal) * 100).toFixed(2));
+      result["Auto Dial"] = this.parseIntegerField(row["Auto Dial"] || row["Auto dial"] || row["auto_dial"]);
+      result["Manual Dial"] = this.parseIntegerField(row["Manual Dial"] || row["Manual dial"] || row["manual_dial"]);
+      result["AI"] = this.parseIntegerField(row["AI"] || row["ai"] || row["Artificial Intelligence"]);
+      result["FY 27"] = this.parseIntegerField(row["FY 27"] || row["FY27"] || row["FY_27"]);
+      result["FY 26"] = this.parseIntegerField(row["FY 26"] || row["FY26"] || row["FY_26"]);
+      result["CJR"] = this.parseIntegerField(row["CJR"] || row["cjr"] || row["CJR "]);
+
+      result["Counsellor discount"] = this.parseIntegerField(row["Counsellor discount"] || row["Counsellor Discount"] || row["Counsellor_Discount"]);
+      result["Counsellor discount-FY 27"] = this.parseIntegerField(row["Counsellor discount-FY 27"] || row["Counsellor discount FY 27"] || row["Counsellor discount-FY27"]);
+      result["Manager discount"] = this.parseIntegerField(row["Manager discount"] || row["Manager Discount"] || row["Manager_Discount"]);
+      result["Other Discount"] = this.parseIntegerField(row["Other Discount"] || row["Other discount"] || row["Other_Discount"]);
+      result["No. of days"] = this.parseIntegerField(row["No. of days"] || row["Number of days"] || row["No. of Days"] || row["Days Count"]);
+      result["VP Retention"] = this.parseIntegerField(row["VP Retention"] || row["VP Retention "] || row["VP_Retention"]);
+      result["CC/FT/Board"] = this.parseIntegerField(row["CC/FT/Board"] || row["CC/FT/Board "] || row["Board Count"]);
+
+      // Float Columns — Talktime: try all known column name variants
+      const talktimeHoursRaw =
+        row["Talktime (In hours)"] ??
+        row["Talktime (in hours)"] ??
+        row["Talktime(hours)"] ??
+        row["Talktime (Hours)"] ??
+        row["talktime_hours"] ??
+        row["Talk Time Hours"] ??
+        null;
+
+      if (talktimeHoursRaw !== undefined && talktimeHoursRaw !== null && talktimeHoursRaw !== "") {
+        result["Talktime (In hours)"] = this.parseFloatField(talktimeHoursRaw, 0.0);
       } else {
-        // If it's already in 100 scale (e.g., 3.39)
-        result["Conversion %"] = parseFloat(val.toFixed(2));
+        // Try seconds-based columns and convert to hours
+        const talktimeSeconds =
+          this.parseFloatField(row["Talktime"]) ||
+          this.parseFloatField(row["Talk Time"]) ||
+          this.parseFloatField(row["Talk time"]) ||
+          this.parseFloatField(row["talktime"]) ||
+          this.parseFloatField(row["TalkTime"]);
+        result["Talktime (In hours)"] = talktimeSeconds > 0 ? parseFloat((talktimeSeconds / 3600).toFixed(4)) : 0.0;
       }
-    } else {
-      result["Conversion %"] = connVal > 0 ? parseFloat(((admVal / connVal) * 100).toFixed(2)) : 0.0;
-    }
 
-    return result;
+      const conversionPctRaw = row["Conversion %"] ?? row["Conversion"] ?? row["Conv %"] ?? row["Conversion Rate"];
+      if (conversionPctRaw !== undefined && conversionPctRaw !== null && conversionPctRaw !== "") {
+        const val = this.parseFloatField(conversionPctRaw, 0.0);
+        // If Excel stores fraction (e.g. 0.0339 representing 3.39%)
+        if (connVal > 0 && Math.abs(val - (admVal / connVal)) < 0.005) {
+          result["Conversion %"] = parseFloat(((admVal / connVal) * 100).toFixed(2));
+        } else {
+          // If it's already in 100 scale (e.g., 3.39)
+          result["Conversion %"] = parseFloat(val.toFixed(2));
+        }
+      } else {
+        result["Conversion %"] = connVal > 0 ? parseFloat(((admVal / connVal) * 100).toFixed(2)) : 0.0;
+      }
+
+      return result;
+    } catch (error) {
+      console.error("Error cleaning row:", row, error);
+      // Return a minimal valid row to prevent breaking the entire dataset
+      return {
+        "Date": "",
+        "Counselor Email": "",
+        "Team Lead": "n/a",
+        "Manager": "n/a",
+        "Campaign": "N/A",
+        "Band": "Band B",
+        "Status": "Active",
+        "Attendance": "Present",
+        "Dialled Calls": 0,
+        "Connected Calls": 0,
+        "Connected calls": 0,
+        "Effective Calls": 0,
+        "Effective calls": 0,
+        "Target": 30,
+        "Total Admissions": 0,
+        "Total admissions": 0,
+        "Total Adm": 0,
+        "Shared Admissions": 0,
+        "Shared admissions": 0,
+        "Shared admissions Form Filled": 0,
+        "Additional Adm": 0,
+        "Penalty": 0,
+        "Total Adm(form Filled)": 0,
+        "EMI Paid": 0,
+        "Full Payment On Spot": 0,
+        "Full Payment On spot": 0,
+        "Auto Dial": 0,
+        "Manual Dial": 0,
+        "AI": 0,
+        "FY 27": 0,
+        "FY 26": 0,
+        "CJR": 0,
+        "Counsellor discount": 0,
+        "Counsellor discount-FY 27": 0,
+        "Manager discount": 0,
+        "Other Discount": 0,
+        "No. of days": 0,
+        "VP Retention": 0,
+        "CC/FT/Board": 0,
+        "Talktime (In hours)": 0.0,
+        "Conversion %": 0.0
+      };
+    }
   }
 
   // Get unique lists of metadata for drop-downs and profiles

@@ -5,74 +5,103 @@ class AnalyticsEngine {
 
   // 1. Calculate Risk Score & Contributors
   calculateRiskScore(counsellorData) {
-    const {
-      totalAdmissions,
-      totalTarget,
-      effectiveRatio,
-      attendance,
-      totalTalktime,
-      totalConnected,
-      totalDials,
-      rawRecords
-    } = counsellorData;
+    try {
+      // Validate input
+      if (!counsellorData || typeof counsellorData !== 'object') {
+        console.warn("Invalid counsellorData provided to calculateRiskScore:", counsellorData);
+          return this._score: 0,
+        category: "Yellow",
+        fpi: 1.0,
+        contributors: [{
+          factor: "Data Error",
+          description: "Invalid or missing counsellor data provided.",
+          impact: "High"
+        }]
+        };
+      }
 
-    // Calculate expected conversion based on lead quality mix
-    const leadStats = this.calculateLeadQuality(counsellorData);
-    const fair = this.calculateFairScore(counsellorData, leadStats);
-    
-    const ECR = fair.expectedRate;
-    const ACR = fair.actualRate;
-    const FPI = ECR > 0 ? ACR / ECR : 1.0;
+      const {
+        totalAdmissions = 0,
+        totalTarget = 0,
+        effectiveRatio = 0,
+        attendance = {},
+        totalTalktime = 0,
+        totalConnected = 0,
+        totalDials = 0,
+        rawRecords = []
+      } = counsellorData;
 
-    const pred = this.predictTargetAchievement(counsellorData);
-    const P_miss = pred.missProbability;
+      // Calculate expected conversion based on lead quality mix
+      const leadStats = this.calculateLeadQuality(counsellorData);
+      const fair = this.calculateFairScore(counsellorData, leadStats);
 
-    // Module 3 Zones:
-    // Green Zone: FPI >= 1.0 and P_miss < 15%
-    // Yellow Zone: 0.85 <= FPI < 1.0 or 15% <= P_miss <= 40%
-    // Red Zone: FPI < 0.85 or P_miss > 40%
-    let category = "Yellow";
-    if (FPI >= 1.0 && P_miss < 15) {
-      category = "Green";
-    } else if (FPI < 0.85 || P_miss > 40) {
-      category = "Red";
+      const ECR = Number(fair.expectedRate) || 0;
+      const ACR = Number(fair.actualRate) || 0;
+      const FPI = ECR > 0 ? ACR / ECR : 1.0;
+
+      const pred = this.predictTargetAchievement(counsellorData);
+      const P_miss = Number(pred.missProbability) || 0;
+
+      // Module 3 Zones:
+      // Green Zone: FPI >= 1.0 and P_miss < 15%
+      // Yellow Zone: 0.85 <= FPI < 1.0 or 15% <= P_miss <= 40%
+      // Red Zone: FPI < 0.85 or P_miss > 40%
+      let category = "Yellow";
+      if (FPI >= 1.0 && P_miss < 15) {
+        category = "Green";
+      } else if (FPI < 0.85 || P_miss > 40) {
+        category = "Red";
+      }
+
+      const riskScore = Math.round(Math.max(0, Math.min(100, P_miss)));
+
+      // Identify Risk Contributors
+      const contributors = [];
+      if (FPI < 0.85) {
+        contributors.push({
+          factor: "Fair Performance (FPI)",
+          description: `FPI is ${parseFloat(FPI).toFixed(2)}, indicating underperformance relative to lead mix expectations.`,
+          impact: "High"
+        });
+      }
+      if (P_miss > 40) {
+        contributors.push({
+          factor: "Target Projections",
+          description: `Linear target miss probability is high (${Math.round(P_miss)}%). Gap is ${pred.gap || 0} admissions.`,
+          impact: "High"
+        });
+      }
+
+      const daysElapsed = this.getDaysElapsed(rawRecords);
+      const expectedProRataTarget = totalTarget > 0 ? totalTarget : daysElapsed * 5;
+      if (totalAdmissions < expectedProRataTarget) {
+        contributors.push({
+          factor: "Pro-rata Target Pace",
+          description: `Admissions (${totalAdmissions}) lagging behind pro-rata target (${Math.max(0, Math.round(expectedProRataTarget))})`,
+          impact: "Medium"
+        });
+      }
+
+      return {
+        score: Math.min(100, Math.max(0, riskScore)),
+        category,
+        fpi: parseFloat(FPI),
+        contributors
+      };
+    } catch (error) {
+      console.error("Error in calculateRiskScore:", error, counsellorData);
+      // Return a safe default value
+      return {
+        score: 0,
+        category: "Yellow",
+        fpi: 1.0,
+        contributors: [{
+          factor: "Calculation Error",
+          description: "An error occurred while calculating risk score. Please check the data.",
+          impact: "High"
+        }]
+      };
     }
-
-    const riskScore = Math.round(P_miss);
-
-    // Identify Risk Contributors
-    const contributors = [];
-    if (FPI < 0.85) {
-      contributors.push({
-        factor: "Fair Performance (FPI)",
-        description: `FPI is ${FPI.toFixed(2)}, indicating underperformance relative to lead mix expectations.`,
-        impact: "High"
-      });
-    }
-    if (P_miss > 40) {
-      contributors.push({
-        factor: "Target Projections",
-        description: `Linear target miss probability is high (${Math.round(P_miss)}%). Gap is ${pred.gap} admissions.`,
-        impact: "High"
-      });
-    }
-
-    const daysElapsed = this.getDaysElapsed(rawRecords);
-    const expectedProRataTarget = totalTarget > 0 ? totalTarget : daysElapsed * 5;
-    if (totalAdmissions < expectedProRataTarget) {
-      contributors.push({
-        factor: "Pro-rata Target Pace",
-        description: `Admissions (${totalAdmissions}) lagging behind pro-rata target (${Math.round(expectedProRataTarget)})`,
-        impact: "Medium"
-      });
-    }
-
-    return {
-      score: Math.min(100, Math.max(0, riskScore)),
-      category,
-      fpi: FPI,
-      contributors
-    };
   }
 
   // Helper to extract elapsed days from active records based on filtered range span
@@ -100,242 +129,440 @@ class AnalyticsEngine {
 
   // 2. Perform Root Cause Analysis Diagnostics
   diagnosePerformance(counsellorData) {
-    const {
-      totalDials,
-      totalConnected,
-      totalAdmissions,
-      conversionPercentage,
-      totalTalktime,
-      attendance,
-      leadQualityScore
-    } = counsellorData;
+    try {
+      // Validate input
+      if (!counsellorData || typeof counsellorData !== 'object') {
+        console.warn("Invalid counsellorData provided to diagnosePerformance:", counsellorData);
+        return [{
+          caseId: 0,
+          severity: "Safe",
+          type: "Optimal Performance",
+          reason: "Invalid data provided",
+          explanation: "Unable to perform diagnosis due to invalid input data.",
+          action: "Please ensure valid counsellor data is provided."
+        }];
+      }
 
-    const activeDays = attendance.present + attendance.halfDay * 0.5 || 1;
-    const avgDials = totalDials / activeDays;
-    const connectRate = totalDials > 0 ? (totalConnected / totalDials) : 0;
-    const avgTalktime = totalConnected > 0 ? (totalTalktime / totalConnected) : 0;
+      const {
+        totalDials = 0,
+        totalConnected = 0,
+        totalAdmissions = 0,
+        conversionPercentage = 0,
+        totalTalktime = 0,
+        attendance = {},
+        leadQualityScore = 0
+      } = counsellorData;
 
-    const issues = [];
+      // Ensure values are numbers
+      const tDials = Number(totalDials) || 0;
+      const tConnected = Number(totalConnected) || 0;
+      const tAdmissions = Number(totalAdmissions) || 0;
+      const tConversionPct = Number(conversionPercentage) || 0;
+      const tTalktime = Number(totalTalktime) || 0;
+      const tAttend = attendance && typeof attendance === 'object' ? attendance : {};
 
-    // Case 1: Effort Gap
-    // Low Dialled Calls (D) + Low Gross Talktime + Low Admissions (A)
-    if (avgDials < 60 && avgTalktime < 180 && totalAdmissions < 2) {
-      issues.push({
-        caseId: 1,
-        severity: "Critical",
-        type: "Effort Gap",
-        reason: "Low Dialled Calls & Talktime",
-        explanation: `Counsellor dialled calls average is low (${Math.round(avgDials)}/day) and gross talktime is deficient. Reflects low activity or system runtime utilization.`,
-        action: "Trigger systematic Productivity Warning Flag; push notification alert tracking active phone channel status."
-      });
-    }
+      const present = Number(tAttend.present) || 0;
+      const halfDay = Number(tAttend.halfDay) || 0;
+      const activeDays = (present + (halfDay * 0.5)) || 1;
+      const avgDials = tDials > 0 ? (tDials / activeDays) : 0;
+      const connectRate = tDials > 0 ? (tConnected / tDials) : 0;
+      const avgTalktime = tConnected > 0 ? (tTalktime / tConnected) : 0;
 
-    // Case 2: Lead Quality Gap
-    // High Dialled Calls (D) + Low Connected Calls (C)
-    if (avgDials >= 60 && connectRate < 0.40) {
-      issues.push({
-        caseId: 2,
-        severity: "High",
-        type: "Lead Quality Gap",
-        reason: "High Dials, Low Connections",
-        explanation: `High dialing activity (${Math.round(avgDials)}/day) is yielding poor connection rates (${Math.round(connectRate * 100)}%). Typical of list fatigue, stale numbers, or spam blocking.`,
-        action: "Trigger Campaign Automation Pause; route lead source batch ticket directly to Marketing QA for validation."
-      });
-    }
+      const issues = [];
 
-    // Case 3: Skill Gap
-    // High Connected Calls (C) + High Gross Talktime + Low Admissions (A)
-    if (totalConnected > 15 && avgTalktime >= 200 && totalAdmissions < 2) {
-      issues.push({
-        caseId: 3,
-        severity: "Critical",
-        type: "Skill Gap",
-        reason: "High Engagement, Low Closures",
-        explanation: `Successful connection rates and high customer engagement times are not translating to course sign-ups. Reflects struggles with objection handling or closing techniques.`,
-        action: "Auto-assign structural Objection Handling & Closing Velocity Training Modules via LMS integration."
-      });
-    }
+      // Case 1: Effort Gap
+      // Low Dialled Calls (D) + Low Gross Talktime + Low Admissions (A)
+      if (avgDials < 60 && avgTalktime < 180 && tAdmissions < 2) {
+        issues.push({
+          caseId: 1,
+          severity: "Critical",
+          type: "Effort Gap",
+          reason: "Low Dialled Calls & Talktime",
+          explanation: `Counsellor dialled calls average is low (${Math.round(avgDials)}/day) and gross talktime is deficient. Reflects low activity or system runtime utilization.`,
+          action: "Trigger systematic Productivity Warning Flag; push notification alert tracking active phone channel status."
+        });
+      }
 
-    // Fallback: If no issues, return safe diagnostic
-    if (issues.length === 0) {
-      issues.push({
+      // Case 2: Lead Quality Gap
+      // High Dialled Calls (D) + Low Connected Calls (C)
+      if (tDials >= 60 && connectRate < 0.40) {
+        issues.push({
+          caseId: 2,
+          severity: "High",
+          type: "Lead Quality Gap",
+          reason: "High Dials, Low Connections",
+          explanation: `High dialing activity (${Math.round(tDials)}/day) is yielding poor connection rates (${Math.round(connectRate * 100)}%). Typical of list fatigue, stale numbers, or spam blocking.`,
+          action: "Trigger Campaign Automation Pause; route lead source batch ticket directly to Marketing QA for validation."
+        });
+      }
+
+      // Case 3: Skill Gap
+      // High Connected Calls (C) + High Gross Talktime + Low Admissions (A)
+      if (tConnected > 15 && avgTalktime >= 200 && tAdmissions < 2) {
+        issues.push({
+          caseId: 3,
+          severity: "Critical",
+          type: "Skill Gap",
+          reason: "High Engagement, Low Closures",
+          explanation: `Successful connection rates and high customer engagement times are not translating to course sign-ups. Reflects struggles with objection handling or closing techniques.`,
+          action: "Auto-assign structural Objection Handling & Closing Velocity Training Modules via LMS integration."
+        });
+      }
+
+      // Fallback: If no issues, return safe diagnostic
+      if (issues.length === 0) {
+        issues.push({
+          caseId: 0,
+          severity: "Safe",
+          type: "Optimal Performance",
+          reason: "Parity Reached",
+          explanation: "No structural performance gaps are currently flagged. Counselor activity aligns with campaign benchmarks.",
+          action: "Maintain current workload and route standard lead inventories."
+        });
+      }
+
+      return issues;
+    } catch (error) {
+      console.error("Error in diagnosePerformance:", error, counsellorData);
+      // Return a safe default value
+      return [{
         caseId: 0,
         severity: "Safe",
         type: "Optimal Performance",
-        reason: "Parity Reached",
-        explanation: "No structural performance gaps are currently flagged. Counselor activity aligns with campaign benchmarks.",
-        action: "Maintain current workload and route standard lead inventories."
-      });
+        reason: "Error in diagnosis",
+        explanation: "An error occurred while performing diagnosis. Please check the data and try again.",
+        action: "Please verify the input data and contact support if the issue persists."
+      }];
     }
-
-    return issues;
   }
 
   // 3. Lead Quality Intelligence
   calculateLeadQuality(counsellorData) {
-    const { totalConnected, totalFormFilled, totalEmiPaid, totalFullPayment } = counsellorData;
-    
-    // Categorization
-    const hotLeads = totalEmiPaid + totalFullPayment;
-    const warmLeads = Math.max(0, totalFormFilled - (totalEmiPaid + totalFullPayment));
-    const coldLeads = Math.max(0, totalConnected - hotLeads - warmLeads);
+    try {
+      // Validate input
+      if (!counsellorData || typeof counsellorData !== 'object') {
+        console.warn("Invalid counsellorData provided to calculateLeadQuality:", counsellorData);
+        return {
+          hotLeads: 0,
+          warmLeads: 0,
+          coldLeads: 0,
+          score: 0,
+          category: "Cold",
+          attribution: "Invalid or missing counsellor data provided."
+        };
+      }
 
-    // Lead Quality Score
-    const lqs = totalConnected > 0 ? 
-      Math.min(100, Math.round(((3.0 * hotLeads) + (1.5 * warmLeads) + (0.5 * coldLeads)) / totalConnected * 100)) : 0;
+      const {
+        totalConnected = 0,
+        totalFormFilled = 0,
+        totalEmiPaid = 0,
+        totalFullPayment = 0,
+        conversionPercentage = 0
+      } = counsellorData;
 
-    let leadQualityCategory = "Cold";
-    if (lqs >= 30 && lqs < 60) leadQualityCategory = "Warm";
-    else if (lqs >= 60) leadQualityCategory = "Hot";
+      // Ensure values are numbers
+      const tConnected = Number(totalConnected) || 0;
+      const tFormFilled = Number(totalFormFilled) || 0;
+      const tEmiPaid = Number(totalEmiPaid) || 0;
+      const tFullPayment = Number(totalFullPayment) || 0;
 
-    // Attribution Logic
-    let attribution = "";
-    if (lqs >= 55 && counsellorData.conversionPercentage < 6) {
-      attribution = "Counsellor Skill Bottleneck (High quality leads are being under-converted due to execution gaps).";
-    } else if (lqs < 35 && counsellorData.conversionPercentage < 6) {
-      attribution = "Lead Quality Bottleneck (Performance issues stem primarily from cold, low-intent leads assigned).";
-    } else if (lqs >= 55 && counsellorData.conversionPercentage >= 8) {
-      attribution = "Optimal Pipeline Alignment (Solid leads combined with excellent counsellor conversion skills).";
-    } else {
-      attribution = "Balanced Pipeline Performance (Average performance metrics matching standard lead mix).";
+      // Categorization
+      const hotLeads = tEmiPaid + tFullPayment;
+      const warmLeads = Math.max(0, tFormFilled - (tEmiPaid + tFullPayment));
+      const coldLeads = Math.max(0, tConnected - hotLeads - warmLeads);
+
+      // Lead Quality Score
+      const lqs = tConnected > 0 ?
+        Math.min(100, Math.round(((3.0 * hotLeads) + (1.5 * warmLeads) + (0.5 * coldLeads)) / tConnected * 100)) : 0;
+
+      let leadQualityCategory = "Cold";
+      if (lqs >= 30 && lqs < 60) leadQualityCategory = "Warm";
+      else if (lqs >= 60) leadQualityCategory = "Hot";
+
+      // Attribution Logic
+      let attribution = "";
+      const convPct = Number(conversionPercentage) || 0;
+      if (lqs >= 55 && convPct < 6) {
+        attribution = "Counsellor Skill Bottleneck (High quality leads are being under-converted due to execution gaps).";
+      } else if (lqs < 35 && convPct < 6) {
+        attribution = "Lead Quality Bottleneck (Performance issues stem primarily from cold, low-intent leads assigned).";
+      } else if (lqs >= 55 && convPct >= 8) {
+        attribution = "Optimal Pipeline Alignment (Solid leads combined with excellent counsellor conversion skills).";
+      } else {
+        attribution = "Balanced Pipeline Performance (Average performance metrics matching standard lead mix).";
+      }
+
+      return {
+        hotLeads,
+        warmLeads,
+        coldLeads,
+        score: lqs,
+        category: leadQualityCategory,
+        attribution
+      };
+    } catch (error) {
+      console.error("Error in calculateLeadQuality:", error, counsellorData);
+      // Return a safe default value
+      return {
+        hotLeads: 0,
+        warmLeads: 0,
+        coldLeads: 0,
+        score: 0,
+        category: "Cold",
+        attribution: "An error occurred while calculating lead quality. Please check the data."
+      };
     }
-
-    return {
-      hotLeads,
-      warmLeads,
-      coldLeads,
-      score: lqs,
-      category: leadQualityCategory,
-      attribution
-    };
   }
 
   // 4. Fair Performance Scoring
   calculateFairScore(counsellorData, leadQualityStats) {
-    const { hotLeads, warmLeads, coldLeads } = leadQualityStats;
-    const { totalConnected, conversionPercentage } = counsellorData;
+    try {
+      // Validate inputs
+      if (!counsellorData || typeof counsellorData !== 'object') {
+        console.warn("Invalid counsellorData provided to calculateFairScore:", counsellorData);
+        return {
+          expectedRate: 0,
+          actualRate: 0,
+          fpi: 1.0,
+          difference: 0,
+          rating: "Parity",
+          color: "yellow"
+        };
+      }
 
-    // Expected Conversion Rate based on lead mix per v1.0 spec:
-    // P1 (hotLeads) is expected to convert at 20%, P2 (warmLeads) at 10%, P3 (coldLeads) at 5%
-    const expectedRate = totalConnected > 0 ? 
-      parseFloat((((0.20 * hotLeads) + (0.10 * warmLeads) + (0.05 * coldLeads)) / totalConnected * 100).toFixed(2)) : 0;
+      if (!leadQualityStats || typeof leadQualityStats !== 'object') {
+        console.warn("Invalid leadQualityStats provided to calculateFairScore:", leadQualityStats);
+        return {
+          expectedRate: 0,
+          actualRate: 0,
+          fpi: 1.0,
+          difference: 0,
+          rating: "Parity",
+          color: "yellow"
+        };
+      }
 
-    const fpi = expectedRate > 0 ? parseFloat((conversionPercentage / expectedRate).toFixed(2)) : 1.0;
-    const diff = conversionPercentage - expectedRate;
+      const { hotLeads = 0, warmLeads = 0, coldLeads = 0 } = leadQualityStats;
+      const { totalConnected = 0, conversionPercentage = 0 } = counsellorData;
 
-    let rating = "Parity";
-    let color = "yellow";
-    if (fpi >= 1.10) {
-      rating = "Highly efficient";
-      color = "green";
-    } else if (fpi < 0.90) {
-      rating = "Underperforming";
-      color = "red";
+      // Ensure values are numbers
+      const tHotLeads = Number(hotLeads) || 0;
+      const tWarmLeads = Number(warmLeads = Number(warmLeads) || 0;
+      const tColdLeads = Number(coldLeads) || 0;
+      const tTotal = Number(totalConnected) || 0;
+      const tConversionPercentage) || 0;
+
+      // Expected Conversion Rate based on lead mix per v1.0 spec:
+      // P1 (hotLeads) is expected to convert at 20%, P2 (warmLeads) at 10%, P3 (coldLeads) at 5%
+      const expectedRate = tConnectedTotal > 0 ?
+        parseFloat((((0.20 * tHotLeads) + (0.10 * tWarmLeads) + (0.05 * tColdLeads)) / tConnectedTotal * 100).toFixed(2)) : 0;
+
+      const fpi = expectedRate > 0 ? parseFloat((tConversionPercentage / expectedRate).toFixed(2)) : 1.0;
+      const diff = tConversionPercentage - expectedRate;
+
+      let rating = "Parity";
+      let color = "yellow";
+      if (fpi >= 1.10) {
+        rating = "Highly efficient";
+        color = "green";
+      } else if (fpi < 0.90) {
+        rating = "Underperforming";
+        color = "red";
+      }
+
+      return {
+        expectedRate: parseFloat(expectedRate),
+        actualRate: parseFloat(tConversionPercentage),
+        fpi: parseFloat(fpi),
+        difference: parseFloat(diff.toFixed(2)),
+        rating,
+        color
+      };
+    } catch (error) {
+      console.error("Error in calculateFairScore:", error, counsellorData, leadQualityStats);
+      // Return a safe default value
+      return {
+        expectedRate: 0,
+        actualRate: 0,
+        fpi: 1.0,
+        difference: 0,
+        rating: "Parity",
+        color: "yellow"
+      };
     }
-
-    return {
-      expectedRate,
-      actualRate: conversionPercentage,
-      fpi,
-      difference: parseFloat(diff.toFixed(2)),
-      rating,
-      color
-    };
   }
 
   // 5. Funnel Analysis Drop-off Stage
   calculateFunnelDropoff(counsellorData) {
-    const {
-      totalDials,
-      totalConnected,
-      totalEffective,
-      totalFormFilled,
-      totalAdmissions,
-      totalEmiPaid,
-      totalFullPayment
-    } = counsellorData;
-
-    // Conversion rates relative to preceding stage
-    const connectRate = totalDials > 0 ? (totalConnected / totalDials) * 100 : 0;
-    const effectiveRate = totalConnected > 0 ? (totalEffective / totalConnected) * 100 : 0;
-    const formRate = totalEffective > 0 ? (totalFormFilled / totalEffective) * 100 : 0;
-    const admissionRate = totalFormFilled > 0 ? (totalAdmissions / totalFormFilled) * 100 : 0;
-
-    const stages = [
-      { name: "Dialled Calls", value: 100, label: "Dialled Outbound", count: totalDials },
-      { name: "Connected Calls", value: connectRate, label: "Connected / Dialled", count: totalConnected },
-      { name: "Effective Calls", value: effectiveRate, label: "Effective / Connected", count: totalEffective },
-      { name: "Buy Now Intent", value: formRate, label: "Form Filled / Effective", count: totalFormFilled },
-      { name: "Full Spot Payments", value: admissionRate, label: "Admissions / Form Filled", count: totalAdmissions }
-    ];
-
-    // Find highest drop-off (lowest conversion percentage among downstream stages)
-    let dropoffStage = stages[1]; // Connected calls is first transition
-    for (let i = 1; i < stages.length; i++) {
-      if (stages[i].value > 0 && stages[i].value < dropoffStage.value) {
-        dropoffStage = stages[i];
+    try {
+      // Validate input
+      if (!counsellorData || typeof counsellorData !== 'object') {
+        console.warn("Invalid counsellorData provided to calculateFunnelDropoff:", counsellorData);
+        return {
+          stages: [
+            { name: "Dialled Calls", value: 100, label: "Dialled Outbound", count: 0 },
+            { name: "Connected Calls", value: 0, label: "Connected / Dialled", count: 0 },
+            { name: "Effective Calls", value: 0, label: "Effective / Connected", count: 0 },
+            { name: "Buy Now Intent", value: 0, label: "Form Filled / Effective", count: 0 },
+            { name: "Full Spot Payments", value: 0, label: "Admissions / Form Filled", count: 0 }
+          ],
+          dropoffStage: { name: "Dialled Calls", value: 100, label: "Dialled Outbound", count: 0 },
+          advice: "Unable to calculate funnel drop-off due to invalid input data."
+        };
       }
-    }
 
-    let advice = "";
-    if (dropoffStage.name.includes("Connected")) {
-      advice = "Re-verify lead contact numbers, avoid spam call registry, and focus calls during high-response hours (11AM-1PM & 4PM-6PM).";
-    } else if (dropoffStage.name.includes("Effective")) {
-      advice = "Provide coaching on elevator pitches and scripts to keep leads engaged during the first 30 seconds of the call.";
-    } else if (dropoffStage.name.includes("Buy Now")) {
-      advice = "Strengthen lead qualification procedures. Focus the course value proposition to candidate career objectives.";
-    } else if (dropoffStage.name.includes("Payments")) {
-      advice = "Provide sales closing and negotiation training. Utilize counselor or manager discount options to build urgency and address immediate financial friction by proposing EMI solutions.";
-    } else {
-      advice = "Maintain current workload and pipeline sequence.";
-    }
+      const {
+        totalDials = 0,
+        totalConnected = 0,
+        totalEffective = 0,
+        totalFormFilled = 0,
+        totalAdmissions = 0,
+        totalEmiPaid = 0,
+        totalFullPayment = 0
+      } = counsellorData;
 
-    return {
-      stages,
-      dropoffStage,
-      advice
-    };
+      // Ensure values are numbers
+      const tDials = Number(totalDials) || 0;
+      const tConnected = Number(totalConnected) || 0;
+      const tEffective = Number(totalEffective) || 0;
+      const tFormFilled = Number(totalFormFilled) || 0;
+      const tAdmissions = Number(totalAdmissions) || 0;
+
+      // Conversion rates relative to preceding stage
+      const connectRate = tDials > 0 ? (tConnected / tDials) * 100 : 0;
+      const effectiveRate = tConnected > 0 ? (tEffective / tConnected) * 100 : 0;
+      const formRate = tEffective > 0 ? (tFormFilled / tEffective) * 100 : 0;
+      const admissionRate = tFormFilled > 0 ? (tAdmissions / tFormFilled) * 100 : 0;
+
+      const stages = [
+        { name: "Dialled Calls", value: 100, label: "Dialled Outbound", count: tDials },
+        { name: "Connected Calls", value: Number(connectRate), label: "Connected / Dialled", count: tConnected },
+        { name: "Effective Calls", value: Number(effectiveRate), label: "Effective / Connected", count: tEffective },
+        { name: "Buy Now Intent", value: Number(formRate), label: "Form Filled / Effective", count: tFormFilled },
+        { name: "Full Spot Payments", value: Number(admissionRate), label: "Admissions / Form Filled", count: tAdmissions }
+      ];
+
+      // Find highest drop-off (lowest conversion percentage among downstream stages)
+      let dropoffStage = stages[1]; // Connected calls is first transition
+      for (let i = 1; i < stages.length; i++) {
+        if (stages[i].value > 0 && stages[i].value < dropoffStage.value) {
+          dropoffStage = stages[i];
+        }
+      }
+
+      let advice = "";
+      if (dropoffStage.name.includes("Connected")) {
+        advice = "Re-verify lead contact numbers, avoid spam call registry, and focus calls during high-response hours (11AM-1PM & 4PM-6PM).";
+      } else if (dropoffStage.name.includes("Effective")) {
+        advice = "Provide coaching on elevator pitches and scripts to keep leads engaged during the first 30 seconds of the call.";
+      } else if (dropoffStage.name.includes("Buy Now")) {
+        advice = "Strengthen lead qualification procedures. Focus the course value proposition to candidate career objectives.";
+      } else if (dropoffStage.name.includes("Payments")) {
+        advice = "Provide sales closing and negotiation training. Utilize counselor or manager discount options to build urgency and address immediate financial friction by proposing EMI solutions.";
+      } else {
+        advice = "Maintain current workload and pipeline sequence.";
+      }
+
+      return {
+        stages,
+        dropoffStage,
+        advice
+      };
+    } catch (error) {
+      console.error("Error in calculateFunnelDropoff:", error, counsellorData);
+      // Return a safe default value
+      return {
+        stages: [
+          { name: "Dialled Calls", value: 100, label: "Dialled Outbound", count: 0 },
+          { name: "Connected Calls", value: 0, label: "Connected / Dialled", count: 0 },
+          { name: "Effective Calls", value: 0, label: "Effective / Connected", count: 0 },
+          { name: "Buy Now Intent", value: 0, label: "Form Filled / Effective", count: 0 },
+          { name: "Full Spot Payments", value: 0, label: "Admissions / Form Filled", count: 0 }
+        ],
+        dropoffStage: { name: "Dialled Calls", value: 100, label: "Dialled Outbound", count: 0 },
+        advice: "An error occurred while calculating funnel drop-off. Please check the data and try again."
+      };
+    }
   }
 
   // 6. Target Achievement Predictor
   predictTargetAchievement(counsellorData) {
-    const { totalAdmissions, totalTarget, rawRecords } = counsellorData;
-    
-    // Days worked = present + 0.5 * halfDay
-    let daysWorked = 18;
-    if (counsellorData.attendance) {
-      daysWorked = counsellorData.attendance.present + counsellorData.attendance.halfDay * 0.5;
+    try {
+      // Validate input
+      if (!counsellorData || typeof counsellorData !== 'object') {
+        console.warn("Invalid counsellorData provided to predictTargetAchievement:", counsellorData);
+        return {
+          currentAdmissions: 0,
+          target: 30,
+          predictedAdmissions: 0,
+          gap: 30,
+          missProbability: 100,
+          daysElapsed: 0,
+          daysRemaining: 30
+        };
+      }
+
+      const {
+        totalAdmissions = 0,
+        totalTarget = 0,
+        rawRecords = [],
+        attendance = {}
+      } = counsellorData;
+
+      // Ensure values are numbers
+      const tAdmissions = Number(totalAdmissions) || 0;
+      const tTarget = Number(totalTarget) || 30;
+
+      // Days worked = present + 0.5 * halfDay
+      let daysWorked = 18;
+      if (attendance && typeof attendance === 'object') {
+        const present = Number(attendance.present) || 0;
+        const halfDay = Number(attendance.halfDay) || 0;
+        daysWorked = present + (halfDay * 0.5);
+      }
+      if (daysWorked <= 0) {
+        daysWorked = this.getDaysElapsed(rawRecords) || 18;
+      }
+
+      const daysInMonth = 30; // standard month size
+      const daysRemaining = Math.max(0, daysInMonth - daysWorked);
+
+      // Calculate daily target based on active rows or days worked, fallback to 5
+      const dailyTarget = daysWorked > 0 ? (tTarget / daysWorked) : 5;
+      const monthEndTarget = daysWorked < 30 ? Math.round(dailyTarget * daysInMonth) : tTarget;
+
+      // Target Achievement Predictor math per Stage 3 Formula:
+      // Current Velocity (V_c) = Admissions / Days Worked
+      // Predicted Month-End Admissions (P_m) = Admissions + (V_c * Remaining Days)
+      // Target Gap (G_t) = Target - P_m
+      // Target Miss Probability (P_miss) = Max(0, (G_t / Target) * 100)
+      const V_c = daysWorked > 0 ? (tAdmissions / daysWorked) : 0;
+      const P_m = tAdmissions + (V_c * daysRemaining);
+      const G_t = Math.max(0, Math.round(monthEndTarget) - Math.round(P_m));
+      const P_miss = Math.max(0, Math.min(100, (G_t / Math.max(1, monthEndTarget)) * 100));
+
+      return {
+        currentAdmissions: tAdmissions,
+        target: Math.round(monthEndTarget),
+        predictedAdmissions: Math.round(P_m),
+        gap: G_t,
+        missProbability: Math.round(P_miss),
+        daysElapsed: parseFloat(daysWorked.toFixed(1)),
+        daysRemaining
+      };
+    } catch (error) {
+      console.error("Error in predictTargetAchievement:", error, counsellorData);
+      // Return a safe default value
+      return {
+        currentAdmissions: 0,
+        target: 30,
+        predictedAdmissions: 0,
+        gap: 30,
+        missProbability: 100,
+        daysElapsed: 0,
+        daysRemaining: 30
+      };
     }
-    if (daysWorked <= 0) {
-      daysWorked = this.getDaysElapsed(rawRecords) || 18;
-    }
-
-    const daysInMonth = 30; // standard month size
-    const daysRemaining = Math.max(0, daysInMonth - daysWorked);
-
-    // Calculate daily target based on active rows or days worked, fallback to 5
-    const dailyTarget = daysWorked > 0 ? (totalTarget / daysWorked) : 5;
-    const monthEndTarget = daysWorked < 30 ? Math.round(dailyTarget * daysInMonth) : totalTarget;
-
-    // Target Achievement Predictor math per Stage 3 Formula:
-    // Current Velocity (V_c) = Admissions / Days Worked
-    // Predicted Month-End Admissions (P_m) = Admissions + (V_c * Remaining Days)
-    // Target Gap (G_t) = Target - P_m
-    // Target Miss Probability (P_miss) = Max(0, (G_t / Target) * 100)
-    const V_c = totalAdmissions / daysWorked;
-    const P_m = totalAdmissions + (V_c * daysRemaining);
-    const G_t = monthEndTarget - P_m;
-    const P_miss = Math.max(0, (G_t / monthEndTarget) * 100);
-
-    return {
-      currentAdmissions: totalAdmissions,
-      target: monthEndTarget,
-      predictedAdmissions: Math.round(P_m),
-      gap: Math.max(0, Math.round(G_t)),
-      missProbability: Math.min(100, Math.round(P_miss)),
-      daysElapsed: parseFloat(daysWorked.toFixed(1)),
-      daysRemaining
-    };
   }
 
   // 7. Dynamic AI Recommendations Generator

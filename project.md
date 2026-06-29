@@ -218,6 +218,14 @@ window.ChartingEngine  // single instance
 | `renderCounsellorRadar(id, name, scores, avg)` | Radar | Profile, Drawer |
 | `renderRiskGauge(id, score)` | Half-Doughnut | Profile, Drawer |
 
+### Error Handling:
+All chart rendering functions include comprehensive error handling:
+- Try/catch blocks around chart creation and rendering logic
+- Input validation for canvas IDs, data arrays, and configuration parameters
+- Graceful degradation - charts fail silently without breaking the UI
+- Detailed error logging to console for debugging purposes
+- Validation of data integrity before processing (null/undefined checks, type checking)
+
 ### Radar Normalization Benchmarks (set in `app.js`):
 ```js
 Dials          → benchmark 80/day   → score = (avgDials ÷ 80) × 100
@@ -244,16 +252,23 @@ window.ReportExporter  // single instance
 - Builds CSV string from data array headers
 - Creates Blob → triggers download via `<a>` element
 - Always exports **filtered data** from `dp.filteredDataset`
+- Includes comprehensive error handling with try/catch blocks
+- Validates input data before processing
+- Provides user feedback through alerts for error conditions
 
 #### `exportToExcel(data, filename)`
 - Uses SheetJS `XLSX.utils.json_to_sheet()`
 - Auto-fits column widths (max 30 chars)
 - Falls back to CSV if XLSX library not loaded
+- Includes try/catch error handling with fallback to CSV export
+- Logs detailed errors to console for debugging
 
 #### `exportToPDF(viewId, title)`
 - Temporarily changes `document.title` (becomes the PDF filename)
 - Triggers `window.print()` → browser print dialog
 - `@media print` rules in `styles.css` apply
+- Includes try/catch error handling with fallback printing mechanism
+- Validates input parameters before execution
 
 ---
 
@@ -369,6 +384,14 @@ let insightsInterval     = null;              // ticker interval handle
 #### `renderDrawerTrendChart()`
 - `drawerChartType === "daily"` → shows real daily records
 - `drawerChartType === "hourly"` → calls `dp.getHourByHourData()` (**SIMULATED**)
+
+### Error Handling Improvements:
+All view rendering functions now include comprehensive error handling:
+- Try/catch blocks around all major operations
+- Input validation for data objects and parameters
+- Graceful degradation with fallback UI states
+- Detailed error logging to console for debugging
+- User-friendly error messages displayed in the UI when appropriate
 
 ---
 
