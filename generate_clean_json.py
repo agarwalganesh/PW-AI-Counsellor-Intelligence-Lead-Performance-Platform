@@ -13,16 +13,13 @@ def generate_json():
     print("Loading and cleaning Excel data...")
     df = get_merged_dataframe(excel_path)
     
-    # Standardize column names to be JSON friendly and match typical variants
-    # For dates, convert to string format so it serializes properly
-    if "Date" in df.columns:
-        df["Date"] = df["Date"].dt.strftime("%Y-%m-%d")
-    if "Joining date" in df.columns:
-        df["Joining date"] = df["Joining date"].dt.strftime("%Y-%m-%d")
-    if "Joining Date" in df.columns:
-        df["Joining Date"] = df["Joining Date"].dt.strftime("%Y-%m-%d")
-    if "__axis_date__" in df.columns:
-        df["__axis_date__"] = df["__axis_date__"].dt.strftime("%Y-%m-%d")
+    # Standardize column names to be JSON friendly and match typical variants.
+    # For dates, convert to string format so it serializes properly. Coerce first so
+    # an object-dtype column (mixed datetimes / NaN from cross-sheet reindex) doesn't
+    # raise "Can only use .dt accessor with datetimelike values".
+    for date_col in ("Date", "Joining date", "Joining Date", "__axis_date__"):
+        if date_col in df.columns:
+            df[date_col] = pd.to_datetime(df[date_col], errors="coerce").dt.strftime("%Y-%m-%d")
         
     # Export to clean_data.json
     output_path = Path("clean_data.json")

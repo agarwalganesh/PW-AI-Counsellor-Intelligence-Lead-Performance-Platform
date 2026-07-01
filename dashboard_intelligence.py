@@ -50,7 +50,9 @@ def pick_col(df: pd.DataFrame, *candidates: str) -> str:
 def consolidate_column(df: pd.DataFrame, target_name: str, aliases: Optional[List[str]] = None) -> pd.Series:
     """
     Consolidates columns by searching for target_name and its aliases in the DataFrame.
-    If multiple exist, it sums them row-wise (handling NaNs as 0).
+    The aliases are name/casing VARIANTS of the SAME metric (e.g. "Total admissions"
+    vs "Total Adm"), so when multiple exist they are COALESCED row-wise (first
+    populated value wins) — NOT summed, which would double-count the same metric.
     If only one exists, it returns it as a numeric series.
     If none exist, returns a Series of zeros.
     """
@@ -58,18 +60,19 @@ def consolidate_column(df: pd.DataFrame, target_name: str, aliases: Optional[Lis
         aliases = []
     search_names = [target_name.lower()] + [a.lower() for a in aliases]
     found_cols = [c for c in df.columns if c.lower() in search_names]
-    
+
     if not found_cols:
         return pd.Series(0.0, index=df.index)
-        
+
     if len(found_cols) == 1:
         return pd.to_numeric(df[found_cols[0]], errors="coerce").fillna(0.0)
-    
-    # If multiple alias columns are present (e.g., in a merged dataset), sum them row-wise
-    result = pd.Series(0.0, index=df.index)
-    for col in found_cols:
-        result += pd.to_numeric(df[col], errors="coerce").fillna(0.0)
-    return result
+
+    # Multiple variant columns present (e.g. in a merged dataset): coalesce row-wise.
+    # Take the first column's value; where it is missing (NaN), fall back to the next.
+    result = pd.to_numeric(df[found_cols[0]], errors="coerce")
+    for col in found_cols[1:]:
+        result = result.fillna(pd.to_numeric(df[col], errors="coerce"))
+    return result.fillna(0.0)
 
 
 def get_standardized_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -334,6 +337,10 @@ def forecast_admissions_and_revenue(
 
     # 2. Aggregate team-level daily admissions
     daily_series = std_df.groupby("Date")["Total Adm"].sum()
+
+    # Drop rows whose Date failed to parse (NaT). Otherwise index.min()/date_range()
+    # below would be NaT and raise ValueError during reindexing.
+    daily_series = daily_series[daily_series.index.notna()]
 
     if daily_series.empty:
         logger.warning("Empty series during forecasting. Returning empty dataframe.")

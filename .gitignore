@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# Environment / secrets — never commit real SMTP credentials
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# OS / editor
+.DS_Store
+Thumbs.db

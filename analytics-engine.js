@@ -9,7 +9,8 @@ class AnalyticsEngine {
       // Validate input
       if (!counsellorData || typeof counsellorData !== 'object') {
         console.warn("Invalid counsellorData provided to calculateRiskScore:", counsellorData);
-          return this._score: 0,
+        return {
+        score: 0,
         category: "Yellow",
         fpi: 1.0,
         contributors: [{
@@ -185,13 +186,13 @@ class AnalyticsEngine {
 
       // Case 2: Lead Quality Gap
       // High Dialled Calls (D) + Low Connected Calls (C)
-      if (tDials >= 60 && connectRate < 0.40) {
+      if (avgDials >= 60 && connectRate < 0.40) {
         issues.push({
           caseId: 2,
           severity: "High",
           type: "Lead Quality Gap",
           reason: "High Dials, Low Connections",
-          explanation: `High dialing activity (${Math.round(tDials)}/day) is yielding poor connection rates (${Math.round(connectRate * 100)}%). Typical of list fatigue, stale numbers, or spam blocking.`,
+          explanation: `High dialing activity (${Math.round(avgDials)}/day) is yielding poor connection rates (${Math.round(connectRate * 100)}%). Typical of list fatigue, stale numbers, or spam blocking.`,
           action: "Trigger Campaign Automation Pause; route lead source batch ticket directly to Marketing QA for validation."
         });
       }
@@ -347,15 +348,15 @@ class AnalyticsEngine {
 
       // Ensure values are numbers
       const tHotLeads = Number(hotLeads) || 0;
-      const tWarmLeads = Number(warmLeads = Number(warmLeads) || 0;
+      const tWarmLeads = Number(warmLeads) || 0;
       const tColdLeads = Number(coldLeads) || 0;
       const tTotal = Number(totalConnected) || 0;
-      const tConversionPercentage) || 0;
+      const tConversionPercentage = Number(conversionPercentage) || 0;
 
       // Expected Conversion Rate based on lead mix per v1.0 spec:
       // P1 (hotLeads) is expected to convert at 20%, P2 (warmLeads) at 10%, P3 (coldLeads) at 5%
-      const expectedRate = tConnectedTotal > 0 ?
-        parseFloat((((0.20 * tHotLeads) + (0.10 * tWarmLeads) + (0.05 * tColdLeads)) / tConnectedTotal * 100).toFixed(2)) : 0;
+      const expectedRate = tTotal > 0 ?
+        parseFloat((((0.20 * tHotLeads) + (0.10 * tWarmLeads) + (0.05 * tColdLeads)) / tTotal * 100).toFixed(2)) : 0;
 
       const fpi = expectedRate > 0 ? parseFloat((tConversionPercentage / expectedRate).toFixed(2)) : 1.0;
       const diff = tConversionPercentage - expectedRate;
@@ -443,9 +444,10 @@ class AnalyticsEngine {
       ];
 
       // Find highest drop-off (lowest conversion percentage among downstream stages)
-      let dropoffStage = stages[1]; // Connected calls is first transition
-      for (let i = 1; i < stages.length; i++) {
-        if (stages[i].value > 0 && stages[i].value < dropoffStage.value) {
+      // Skip stage 0 (Dialled at 100%) and find the stage with the lowest conversion rate
+      let dropoffStage = stages[1];
+      for (let i = 2; i < stages.length; i++) {
+        if (stages[i].value < dropoffStage.value) {
           dropoffStage = stages[i];
         }
       }
@@ -679,7 +681,9 @@ class AnalyticsEngine {
       const probs = d * Math.exp(-0.5 * absZ * absZ) * 
                     (0.3193815 * t - 0.3565638 * t * t + 1.781478 * t * t * t - 
                      1.821256 * t * t * t * t + 1.330274 * t * t * t * t * t);
-      return 2 * probs;
+      // Clamp: the two-tailed tail approximation can overshoot slightly above 1.0
+      // for very small |z|; a probability can never exceed 1.
+      return Math.min(1, 2 * probs);
     };
     
     const pValue = getPValue(zScore);

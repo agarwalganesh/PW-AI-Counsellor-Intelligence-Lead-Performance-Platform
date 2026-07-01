@@ -275,21 +275,32 @@ button, input, select, textarea {
 
 /* Top Header */
 .top-header {
-  height: var(--header-height);
+  /* min-height (not fixed height) so the bar can grow to a second row instead of
+     clipping its contents when space is tight (e.g. browser zoom-in). */
+  min-height: var(--header-height);
   background-color: var(--surface-color);
   border-bottom: 1px solid var(--surface-border);
   backdrop-filter: blur(16px);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 32px;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding: 10px 32px;
   flex-shrink: 0;
   z-index: 9;
+}
+
+.header-title-section {
+  /* Keep the title at its natural width so filters wrap below it instead of
+     squeezing the heading into a cramped two-line block. */
+  flex-shrink: 0;
 }
 
 .header-title-section h1 {
   font-size: 1.35rem;
   color: var(--text-primary);
+  white-space: nowrap;
 }
 
 .header-title-section p {
@@ -301,13 +312,16 @@ button, input, select, textarea {
 .header-filters {
   display: flex;
   align-items: center;
-  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px 16px;
 }
 
 .filter-group {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .filter-label {
@@ -876,6 +890,25 @@ button, input, select, textarea {
 
 .recommendation-action:hover {
   text-decoration: underline;
+}
+
+.rec-email-btn {
+  display: block;
+  margin-top: 12px;
+  padding: 8px 14px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #fff;
+  background-color: var(--accent-info);
+  border: none;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: var(--transition-smooth);
+}
+
+.rec-email-btn:hover {
+  filter: brightness(1.1);
+  box-shadow: var(--glow-shadow-info);
 }
 
 /* Counsellor Intelligence Profile Page */

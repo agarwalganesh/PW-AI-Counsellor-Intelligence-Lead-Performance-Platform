@@ -2,9 +2,11 @@
   "name": "ai-counsellor-intelligence-platform",
   "version": "1.0.0",
   "description": "AI-powered analytics platform for counsellor performance and lead quality scoring",
-  "main": "index.html",
+  "main": "server.js",
   "scripts": {
-    "dev": "npx -y http-server -p 8081"
+    "start": "node server.js",
+    "dev": "node server.js",
+    "static": "npx -y http-server -p 8081 -c-1"
   },
   "keywords": [
     "counsellor-analytics",
@@ -15,6 +17,9 @@
   "author": "Antigravity",
   "license": "ISC",
   "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "nodemailer": "^6.9.14",
     "xlsx": "^0.18.5"
   }
 }

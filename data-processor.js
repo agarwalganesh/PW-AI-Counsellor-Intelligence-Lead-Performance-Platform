@@ -286,12 +286,15 @@ class DataProcessor {
       }
       if (typeof excelDate === "number") {
         // Excel serial date number
-        const date = new Date((excelDate - 25569) * 86400 * 1000);
+        const utc = new Date((excelDate - 25569) * 86400 * 1000);
         // Validate the date is reasonable (not too far in past/future)
-        if (isNaN(date.getTime()) || date.getFullYear() < 1900 || date.getFullYear() > 2100) {
+        if (isNaN(utc.getTime()) || utc.getUTCFullYear() < 1900 || utc.getUTCFullYear() > 2100) {
           return "";
         }
-        return date.toISOString().split("T")[0];
+        // Rebuild as a LOCAL date from the UTC calendar parts so the serial path
+        // formats consistently with the Date-object / DMY-string paths (no TZ off-by-one).
+        const date = new Date(utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate());
+        return this.formatLocalDate(date);
       }
       // String matching
       const strDate = String(excelDate).trim();
@@ -356,13 +359,30 @@ class DataProcessor {
         }
       };
 
-      // Date columns — FIX: Added more column name variants (Reporting Date, Report Date, Day, Working Date)
+      // Case/space-insensitive raw value resolver — preserves the original cell
+      // TYPE (so Excel serial-date numbers stay numbers for parseExcelDate).
+      const getRawVal = (...keys) => {
+        if (!row || typeof row !== 'object') return undefined;
+        for (const key of keys) {
+          const actualKey = Object.keys(row).find(
+            k => k && typeof k === 'string' && k.trim().toLowerCase() === key.toLowerCase()
+          );
+          if (actualKey !== undefined) {
+            const v = row[actualKey];
+            if (v !== undefined && v !== null && v !== "") return v;
+          }
+        }
+        return undefined;
+      };
+
+      // Date columns — resolved case/space-insensitively (handles "reporting date",
+      // " Date" with stray spaces, etc.) without losing numeric serial-date types.
       result["Date"] = this.parseExcelDate(
-        row["Date"] || row["date"] || row["DATE"] ||
-        row["Reporting Date"] || row["Report Date"] ||
-        row["Day"] || row["Working Date"] || row["Dated"]
+        getRawVal("Date", "Reporting Date", "Report Date", "Day", "Working Date", "Dated")
       );
-      result["Joining date"] = this.parseExcelDate(row["Joining date"] || row["Joining Date"] || row["joining_date"] || row["DOJ"] || row["Date of Joining"]);
+      result["Joining date"] = this.parseExcelDate(
+        getRawVal("Joining date", "joining_date", "DOJ", "Date of Joining")
+      );
 
       // Case Normalization: Lowercase counselor email, TL, and manager to resolve case-sensitivity errors
       // FIX: Added 'Counsellor Email' (double-l British spelling) and more variants
@@ -462,13 +482,11 @@ class DataProcessor {
       if (talktimeHoursRaw !== undefined && talktimeHoursRaw !== null && talktimeHoursRaw !== "") {
         result["Talktime (In hours)"] = this.parseFloatField(talktimeHoursRaw, 0.0);
       } else {
-        // Try seconds-based columns and convert to hours
-        const talktimeSeconds =
-          this.parseFloatField(row["Talktime"]) ||
-          this.parseFloatField(row["Talk Time"]) ||
-          this.parseFloatField(row["Talk time"]) ||
-          this.parseFloatField(row["talktime"]) ||
-          this.parseFloatField(row["TalkTime"]);
+        // Try seconds-based columns and convert to hours.
+        // Use the first column that actually EXISTS (not the first truthy parse) so a
+        // legitimate 0 in "Talktime" isn't skipped in favour of an unrelated column.
+        const talktimeSecondsRaw = getRawVal("Talktime", "Talk Time", "Talk time", "TalkTime");
+        const talktimeSeconds = this.parseFloatField(talktimeSecondsRaw);
         result["Talktime (In hours)"] = talktimeSeconds > 0 ? parseFloat((talktimeSeconds / 3600).toFixed(4)) : 0.0;
       }
 

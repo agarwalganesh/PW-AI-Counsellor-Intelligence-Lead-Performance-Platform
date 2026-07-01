@@ -14,7 +14,6 @@ class ChartingEngine {
   }
 
   // 1. Line Chart: Call Activity over Time
-  renderCallActivity
   renderCallActivityTrend(canvasId, dailyTrend) {
     try {
       // Validate inputs
@@ -78,7 +77,7 @@ class ChartingEngine {
               label: "Connected Calls",
               data: connected,
               borderColor: "hsl(217, 91%, 60%)",
-              backgroundColor: "rgba(217, 91%, 60%, 0.1)",
+              backgroundColor: "hsla(217, 91%, 60%, 0.1)",
               borderWidth: 3,
               fill: true,
               tension: 0.3,
@@ -88,7 +87,7 @@ class ChartingEngine {
               label: "Effective Calls",
               data: effective,
               borderColor: "hsl(142, 76%, 45%)",
-              backgroundColor: "rgba(142, 76%, 45%, 0.1)",
+              backgroundColor: "hsla(142, 76%, 45%, 0.1)",
               borderWidth: 3,
               fill: true,
               tension: 0.3,
@@ -183,7 +182,7 @@ class ChartingEngine {
 
       // Pro-rata Target reference line
       const daysInMonth = 30;
-      const proRata);
+      const proRataTarget = labels.map((_, i) => Math.round((monthlyTarget / daysInMonth) * (i + 1)));
 
       this.chartRegistry[canvasId] = new Chart(ctx, {
         type: "bar",
@@ -425,7 +424,7 @@ class ChartingEngine {
             {
               label: `${String(counsellorName)} (Actual)`,
               data: safeIndScores,
-              backgroundColor: "rgba(217, 91%, 60%, 0.2)",
+              backgroundColor: "hsla(217, 91%, 60%, 0.2)",
               borderColor: "hsl(217, 91%, 60%)",
               borderWidth: 2,
               pointBackgroundColor: "hsl(217, 91%, 60%)"

@@ -594,25 +594,45 @@ document.addEventListener("DOMContentLoaded", () => {
         if (appendBtn) appendBtn.style.display = "flex";
       };
 
-      if (files.length === 1) {
-        // Single file — use original path to preserve multi-sheet modal behaviour
-        dp.parseExcelFile(files[0], (err, result) => {
-          if (err) { alert(`Excel Parsing Error: ${err.message}`); return; }
-          if (result.isMultiSheet) { openSheetSelectorModal(result.sheetNames); return; }
-          showSuccess("Uploaded Sheet Active");
-          dp.saveDatasetToStorage();
-          renderFileList([{ name: files[0].name, rows: dp.rawDataset.length }], dp.rawDataset.length);
-          finishInit();
-        });
-      } else {
-        // Multiple files — merge all sheets from all files
-        dp.parseMultipleFiles(files, (err, result) => {
-          if (err) { alert(`Excel Parsing Error: ${err.message}`); return; }
-          showSuccess(`${files.length} Files Merged Active`);
-          dp.saveDatasetToStorage();
-          renderFileList(result.fileResults, result.totalRows);
-          finishInit();
-        });
+      // Wrap the whole post-parse pipeline so ANY failure (parsing OR the UI/render
+      // step after it) surfaces as a visible alert instead of failing silently —
+      // previously only errors from inside dp.parseExcelFile itself were reported.
+      const reportUnexpectedError = (err) => {
+        console.error("Upload processing error:", err);
+        alert(`Upload failed unexpectedly: ${err && err.message ? err.message : err}\n\nOpen the browser console (F12) for details.`);
+      };
+
+      try {
+        if (files.length === 1) {
+          // Single file — use original path to preserve multi-sheet modal behaviour
+          dp.parseExcelFile(files[0], (err, result) => {
+            try {
+              if (err) { alert(`Excel Parsing Error: ${err.message}`); return; }
+              if (result.isMultiSheet) { openSheetSelectorModal(result.sheetNames); return; }
+              showSuccess("Uploaded Sheet Active");
+              dp.saveDatasetToStorage();
+              renderFileList([{ name: files[0].name, rows: dp.rawDataset.length }], dp.rawDataset.length);
+              finishInit();
+            } catch (innerErr) {
+              reportUnexpectedError(innerErr);
+            }
+          });
+        } else {
+          // Multiple files — merge all sheets from all files
+          dp.parseMultipleFiles(files, (err, result) => {
+            try {
+              if (err) { alert(`Excel Parsing Error: ${err.message}`); return; }
+              showSuccess(`${files.length} Files Merged Active`);
+              dp.saveDatasetToStorage();
+              renderFileList(result.fileResults, result.totalRows);
+              finishInit();
+            } catch (innerErr) {
+              reportUnexpectedError(innerErr);
+            }
+          });
+        }
+      } catch (err) {
+        reportUnexpectedError(err);
       }
       // Reset input so same files can be re-selected if needed
       e.target.value = "";
@@ -625,22 +645,23 @@ document.addEventListener("DOMContentLoaded", () => {
         const files = e.target.files;
         if (!files || files.length === 0) return;
 
-        dp.appendMultipleFiles(files, (err, result) => {
-          if (err) { alert(`Append Error: ${err.message}`); return; }
-          const listEl = document.getElementById("loaded-files-list");
-          if (false && listEl) {
-            // Prepend to existing list
-            const added = result.fileResults.map(f =>
-              `➕ <strong>${f.name}</strong>: +${(f.rows || 0).toLocaleString()} rows`
-            ).join("<br>");
-            listEl.innerHTML = added + "<br>" + listEl.innerHTML;
-            listEl.innerHTML += `<br>✅ <strong>Total now: ${result.totalRows.toLocaleString()} records</strong>`;
-          }
-          dp.saveDatasetToStorage();
-          renderFileList(result.fileResults, result.totalRows, "append");
-          document.getElementById("data-status-text").textContent = `${result.totalRows.toLocaleString()} Records (Merged)`;
-          finishInit();
-        });
+        try {
+          dp.appendMultipleFiles(files, (err, result) => {
+            try {
+              if (err) { alert(`Append Error: ${err.message}`); return; }
+              dp.saveDatasetToStorage();
+              renderFileList(result.fileResults, result.totalRows, "append");
+              document.getElementById("data-status-text").textContent = `${result.totalRows.toLocaleString()} Records (Merged)`;
+              finishInit();
+            } catch (innerErr) {
+              console.error("Append processing error:", innerErr);
+              alert(`Append failed unexpectedly: ${innerErr.message}\n\nOpen the browser console (F12) for details.`);
+            }
+          });
+        } catch (err) {
+          console.error("Append processing error:", err);
+          alert(`Append failed unexpectedly: ${err.message}\n\nOpen the browser console (F12) for details.`);
+        }
         e.target.value = "";
       });
     }
@@ -1217,8 +1238,9 @@ document.addEventListener("DOMContentLoaded", () => {
           // Set fallback values
           if (grossMarginEl) grossMarginEl.textContent = "₹0";
           if (grossMarginPctEl) {
-            g
+            grossMarginPctEl.textContent = "0% Gross Margin";
           }
+          if (operationalBurnEl) operationalBurnEl.textContent = "₹0";
         }
       }
 
@@ -1310,17 +1332,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const topList = document.getElementById("exec-top-performers-list");
     topList.innerHTML = "";
+    let topHtml = "";
     sortedPerformers.forEach((p, idx) => {
-      topList.innerHTML += `
-        <div class="diagnostic-card safe" style="margin-bottom:8px; cursor:pointer;" onclick="window.routeToProfile('${p.email}')">
+      topHtml += `
+        <div class="diagnostic-card safe" style="margin-bottom:8px; cursor:pointer;" onclick="window.routeToProfile('${escapeHTML(p.email)}')">
           <div class="diagnostic-indicator">🏆</div>
           <div class="diagnostic-info">
-            <div class="diagnostic-title">#${idx+1} ${p.name} (FPI: ${p.fpi.toFixed(2)})</div>
+            <div class="diagnostic-title">#${idx+1} ${escapeHTML(p.name)} (FPI: ${p.fpi.toFixed(2)})</div>
             <div class="diagnostic-desc">${p.totalAdmissions} Admissions (Conv: ${p.conversionPercentage}%)</div>
           </div>
         </div>
       `;
     });
+    topList.innerHTML = topHtml;
 
     // High Risk warnings
     const riskAlerts = [];
@@ -1340,19 +1364,21 @@ document.addEventListener("DOMContentLoaded", () => {
     if (riskAlerts.length === 0) {
       riskList.innerHTML = '<div style="font-size:0.8rem; color:var(--text-muted); text-align:center; padding: 20px 0;">No high-risk alerts.</div>';
     } else {
+      let riskHtml = "";
       riskAlerts.slice(0, 3).forEach(r => {
         const borderClass = r.riskCat === "Red" ? "critical" : "warning";
         const indicator = r.riskCat === "Red" ? "🛑" : "⚠️";
-        riskList.innerHTML += `
-          <div class="diagnostic-card ${borderClass}" style="margin-bottom:8px; cursor:pointer;" onclick="window.routeToProfile('${r.email}')">
+        riskHtml += `
+          <div class="diagnostic-card ${borderClass}" style="margin-bottom:8px; cursor:pointer;" onclick="window.routeToProfile('${escapeHTML(r.email)}')">
             <div class="diagnostic-indicator">${indicator}</div>
             <div class="diagnostic-info">
-              <div class="diagnostic-title">${r.name} (Risk Score: ${r.riskScore})</div>
+              <div class="diagnostic-title">${escapeHTML(r.name)} (Risk Score: ${r.riskScore})</div>
               <div class="diagnostic-desc">Target Miss Prob: ${r.missProb}% | Target Gap: ${r.gap}</div>
             </div>
           </div>
         `;
       });
+      riskList.innerHTML = riskHtml;
     }
 
     // Mini Recommendations List
@@ -1363,17 +1389,19 @@ document.addEventListener("DOMContentLoaded", () => {
     if (recs.length === 0) {
       recList.innerHTML = '<div style="font-size:0.8rem; color:var(--text-muted); text-align:center; padding: 20px 0;">All indicators stable.</div>';
     } else {
+      let miniRecsHtml = "";
       recs.forEach(rec => {
         const severityClass = rec.priority === "High" ? "critical" : rec.priority === "Medium" ? "warning" : "safe";
-        recList.innerHTML += `
+        miniRecsHtml += `
           <div class="diagnostic-card ${severityClass}" style="margin-bottom:8px; cursor:pointer;" onclick="window.routeToRecommendations()">
             <div class="diagnostic-info">
-              <div class="diagnostic-title" style="font-weight:700;">${rec.subject}</div>
-              <div class="diagnostic-desc" style="font-size:0.75rem;">${rec.desc}</div>
+              <div class="diagnostic-title" style="font-weight:700;">${escapeHTML(rec.subject)}</div>
+              <div class="diagnostic-desc" style="font-size:0.75rem;">${escapeHTML(rec.desc)}</div>
             </div>
           </div>
         `;
       });
+      recList.innerHTML = miniRecsHtml;
     }
   }
 
@@ -1421,6 +1449,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Sort using the Multi-Column Sorting descriptors
     const sortedBreakdown = dp.sortBreakdown(filteredBreakdown);
 
+    let tableHtml = "";
     sortedBreakdown.forEach(c => {
       const risk = ae.calculateRiskScore(c);
       const leadQuality = ae.calculateLeadQuality(c);
@@ -1432,13 +1461,14 @@ document.addEventListener("DOMContentLoaded", () => {
       const hrs = Math.floor(c.totalTalktime / 3600);
       const mins = Math.floor((c.totalTalktime % 3600) / 60);
       const formattedTalktime = `${hrs}h ${mins}m`;
+      const attendanceRate = (c.attendance && c.attendance.rate) || 0;
 
-      tableBody.innerHTML += `
-        <tr style="cursor:pointer;" onclick="window.routeToProfile('${c.email}')">
+      tableHtml += `
+        <tr style="cursor:pointer;" onclick="window.routeToProfile('${escapeHTML(c.email)}')">
           <td style="font-weight:700; color:var(--accent-info);">${escapeHTML(displayName(c))}</td>
           <td><div style="font-size:0.75rem;">TL: ${escapeHTML(toTitleCase(c.teamLead))}</div><div style="font-size:0.7rem; color:var(--text-muted)">Mgr: ${escapeHTML(toTitleCase(c.manager))}</div></td>
           <td>${escapeHTML(c.campaign)}</td>
-          <td>${c.attendance.rate}%</td>
+          <td>${attendanceRate}%</td>
           <td>${c.target}</td>
           <td><strong style="font-size:0.95rem;">${c.totalAdmissions}</strong></td>
           <td>${c.conversionPercentage}%</td>
@@ -1451,6 +1481,7 @@ document.addEventListener("DOMContentLoaded", () => {
         </tr>
       `;
     });
+    tableBody.innerHTML = tableHtml;
 
   }
 
@@ -1519,6 +1550,7 @@ document.addEventListener("DOMContentLoaded", () => {
         break;
     }
 
+    let rankingsHtml = "";
     sortedList.forEach((c, index) => {
       const risk = ae.calculateRiskScore(c);
       const leadQuality = ae.calculateLeadQuality(c);
@@ -1548,12 +1580,12 @@ document.addEventListener("DOMContentLoaded", () => {
       else if (category === "risk") metricValText = `Risk: ${risk.score}`;
       else if (category === "lazy") metricValText = `Velocity Shift: ${momVelocity > 0 ? '+' : ''}${momVelocity.toFixed(1)}%`;
 
-      tableBody.innerHTML += `
-        <tr style="cursor:pointer;" onclick="window.routeToProfile('${c.email}')">
+      rankingsHtml += `
+        <tr style="cursor:pointer;" onclick="window.routeToProfile('${escapeHTML(c.email)}')">
           <td><strong style="font-size:1rem;">#${index + 1}</strong></td>
-          <td style="font-weight:700; color:var(--accent-info);">${c.name}</td>
+          <td style="font-weight:700; color:var(--accent-info);">${escapeHTML(c.name)}</td>
           <td><strong>${c.totalAdmissions}</strong></td>
-          <td>${c.targetAchievement}%</td>
+          <td>${c.targetAchievement || 0}%</td>
           <td>${c.conversionPercentage}%</td>
           <td>${metricValText}</td>
           <td><span class="status-pill ${risk.category === "Red" ? "red" : risk.category === "Yellow" ? "yellow" : "green"}">${risk.score} (${risk.category})</span></td>
@@ -1561,6 +1593,7 @@ document.addEventListener("DOMContentLoaded", () => {
         </tr>
       `;
     });
+    tableBody.innerHTML = rankingsHtml;
   }
 
   // 4. Counsellor Profiles View
@@ -1615,23 +1648,25 @@ document.addEventListener("DOMContentLoaded", () => {
     diagList.innerHTML = "";
     
     const diagnostics = ae.diagnosePerformance(c);
+    let diagHtml = "";
     diagnostics.forEach(diag => {
       const isSafe = diag.severity === "Safe";
       const isCritical = diag.severity === "Critical";
       const pillClass = isSafe ? "safe" : isCritical ? "critical" : "warning";
       const flag = isSafe ? "✓" : isCritical ? "🛑" : "⚠️";
 
-      diagList.innerHTML += `
+      diagHtml += `
         <div class="diagnostic-card ${pillClass}" style="margin-bottom:8px;">
           <div class="diagnostic-indicator">${flag}</div>
           <div class="diagnostic-info">
-            <div class="diagnostic-title" style="font-weight:700;">${diag.type} (${diag.severity})</div>
-            <div class="diagnostic-desc">${diag.explanation}</div>
-            <div style="font-size:0.75rem; font-weight:600; color:var(--text-primary); margin-top:4px;">Action: ${diag.action}</div>
+            <div class="diagnostic-title" style="font-weight:700;">${escapeHTML(diag.type)} (${diag.severity})</div>
+            <div class="diagnostic-desc">${escapeHTML(diag.explanation)}</div>
+            <div style="font-size:0.75rem; font-weight:600; color:var(--text-primary); margin-top:4px;">Action: ${escapeHTML(diag.action)}</div>
           </div>
         </div>
       `;
     });
+    diagList.innerHTML = diagHtml;
 
     // AI summary generation
     const summaryBox = document.getElementById("profile-ai-summary");
@@ -1772,10 +1807,11 @@ document.addEventListener("DOMContentLoaded", () => {
     chartTitle.textContent = `${capCat} Comparative Analysis`;
     tableHeader.textContent = capCat;
 
+    let compareTableHtml = "";
     categories.forEach(key => {
       const grp = groups[key];
       const convPct = grp.connected > 0 ? parseFloat(((grp.admissions / grp.connected) * 100).toFixed(2)) : 0;
-      
+
       // Calculate average risk score of counsellors in this group
       let totalRisk = 0;
       let count = 0;
@@ -1798,15 +1834,16 @@ document.addEventListener("DOMContentLoaded", () => {
       else if (avgRisk > 60) riskColor = "red";
 
       const displayName = (category === "lead" || category === "manager") ? toTitleCase(key) : key;
-      tableBody.innerHTML += `
+      compareTableHtml += `
         <tr>
-          <td style="font-weight:700; color:var(--accent-info);">${displayName}</td>
+          <td style="font-weight:700; color:var(--accent-info);">${escapeHTML(displayName)}</td>
           <td><strong>${grp.admissions}</strong></td>
           <td>${convPct}%</td>
           <td><span class="status-pill ${riskColor}">${avgRisk}</span></td>
         </tr>
       `;
     });
+    tableBody.innerHTML = compareTableHtml;
 
     // Render Side-by-side comparative Bar chart
     const displayCategories = categories.map(k => (category === "lead" || category === "manager") ? toTitleCase(k) : k);
@@ -1871,12 +1908,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const breakdown = dp.getCounsellorBreakdown();
 
+    let riskTableHtml = "";
     breakdown.forEach(c => {
       const risk = ae.calculateRiskScore(c);
       const pred = ae.predictTargetAchievement(c);
       const pillClass = risk.category === "Red" ? "red" : risk.category === "Yellow" ? "yellow" : "green";
 
-      tableBody.innerHTML += `
+      riskTableHtml += `
         <tr style="cursor:pointer;" onclick="window.explainRisk('${escapeHTML(c.email)}')">
           <td style="font-weight:700; color:var(--accent-info);">${escapeHTML(displayName(c))}</td>
           <td>${pred.target}</td>
@@ -1888,6 +1926,7 @@ document.addEventListener("DOMContentLoaded", () => {
         </tr>
       `;
     });
+    tableBody.innerHTML = riskTableHtml;
 
     populateSimulatorOptions(breakdown);
     if (breakdown[0]) renderRiskExplanation(breakdown[0]);
@@ -2043,6 +2082,8 @@ document.addEventListener("DOMContentLoaded", () => {
     lqBody.innerHTML = "";
     fairBody.innerHTML = "";
 
+    let lqHtml = "";
+    let fairHtml = "";
     breakdown.forEach(c => {
       const leadStats = ae.calculateLeadQuality(c);
       const fair = ae.calculateFairScore(c, leadStats);
@@ -2052,15 +2093,15 @@ document.addEventListener("DOMContentLoaded", () => {
       if (leadStats.score < 35) scoreColor = "red";
       else if (leadStats.score >= 35 && leadStats.score < 60) scoreColor = "yellow";
 
-      lqBody.innerHTML += `
-        <tr style="cursor:pointer;" onclick="window.routeToProfile('${c.email}')">
-          <td style="font-weight:700; color:var(--accent-info);">${c.name}</td>
+      lqHtml += `
+        <tr style="cursor:pointer;" onclick="window.routeToProfile('${escapeHTML(c.email)}')">
+          <td style="font-weight:700; color:var(--accent-info);">${escapeHTML(c.name)}</td>
           <td>${leadStats.hotLeads}</td>
           <td>${leadStats.warmLeads}</td>
           <td>${leadStats.coldLeads}</td>
           <td><span class="status-pill ${scoreColor}">${leadStats.score} (${leadStats.category})</span></td>
           <td>${c.conversionPercentage}%</td>
-          <td style="font-size:0.75rem;">${leadStats.attribution}</td>
+          <td style="font-size:0.75rem;">${escapeHTML(leadStats.attribution)}</td>
         </tr>
       `;
 
@@ -2068,9 +2109,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const varPrefix = fair.difference > 0 ? "+" : "";
       const varColor = fair.color === "green" ? "var(--accent-safe)" : fair.color === "red" ? "var(--accent-critical)" : "var(--text-primary)";
 
-      fairBody.innerHTML += `
-        <tr style="cursor:pointer;" onclick="window.routeToProfile('${c.email}')">
-          <td style="font-weight:700; color:var(--accent-info);">${c.name}</td>
+      fairHtml += `
+        <tr style="cursor:pointer;" onclick="window.routeToProfile('${escapeHTML(c.email)}')">
+          <td style="font-weight:700; color:var(--accent-info);">${escapeHTML(c.name)}</td>
           <td>${leadStats.score}</td>
           <td>${fair.expectedRate}%</td>
           <td>${fair.actualRate}%</td>
@@ -2079,6 +2120,8 @@ document.addEventListener("DOMContentLoaded", () => {
         </tr>
       `;
     });
+    lqBody.innerHTML = lqHtml;
+    fairBody.innerHTML = fairHtml;
 
     // Structural Lead Disparities & Overload Warning Monitor (Module 6)
     const tlGroups = {};
@@ -2107,22 +2150,23 @@ document.addEventListener("DOMContentLoaded", () => {
     const disparityBody = document.getElementById("lead-disparity-table-body");
     if (disparityBody) {
       disparityBody.innerHTML = "";
+      let disparityHtml = "";
       tlAverages.forEach(item => {
         const deviation = item.avg - orgAvgLqs;
         const isOverloaded = item.avg < orgAvgLqs * 0.90;
-        
+
         const badgeClass = isOverloaded ? "red" : "green";
         const badgeText = isOverloaded ? "OVERLOADED (Low Quality Mix)" : "BALANCED (Standard Mix)";
         const devPrefix = deviation > 0 ? "+" : "";
 
-        disparityBody.innerHTML += `
+        disparityHtml += `
           <tr>
-            <td style="font-weight:700; color:var(--accent-info);">${toTitleCase(item.tl)}</td>
+            <td style="font-weight:700; color:var(--accent-info);">${escapeHTML(toTitleCase(item.tl))}</td>
             <td>${item.totalLeads} calls connected</td>
             <td><strong>${item.avg.toFixed(1)}</strong> (Org Avg: ${orgAvgLqs.toFixed(1)})</td>
             <td>
-              <span style="color:var(--accent-critical); font-weight:600;">Hot: ${item.hot}</span> | 
-              <span style="color:var(--accent-warning); font-weight:600;">Warm: ${item.warm}</span> | 
+              <span style="color:var(--accent-critical); font-weight:600;">Hot: ${item.hot}</span> |
+              <span style="color:var(--accent-warning); font-weight:600;">Warm: ${item.warm}</span> |
               <span style="color:var(--text-secondary);">Cold: ${item.cold}</span>
             </td>
             <td style="color:${deviation >= 0 ? 'var(--accent-safe)' : 'var(--accent-critical)'}; font-weight:700;">
@@ -2132,6 +2176,7 @@ document.addEventListener("DOMContentLoaded", () => {
           </tr>
         `;
       });
+      disparityBody.innerHTML = disparityHtml;
     }
   }
 
@@ -2141,21 +2186,21 @@ document.addEventListener("DOMContentLoaded", () => {
     const funnel = ae.calculateFunnelDropoff(aggr);
 
     const container = document.getElementById("funnel-chart-container");
-    container.innerHTML = "";
+    let funnelHtml = "";
 
     funnel.stages.forEach((stage, idx) => {
       // Calculate conversion percent to render funnel bars
-      // Stage value represents the percentage conversion of this stage. 
+      // Stage value represents the percentage conversion of this stage.
       // Scale visual bar relative to value, minimum 15% width for visibility
       const widthPct = Math.max(15, Math.round(stage.value));
       const is0 = stage.value === 0;
 
-      container.innerHTML += `
+      funnelHtml += `
         <div class="funnel-stage">
           <div class="funnel-bar-wrapper">
             <div class="funnel-bar" style="width: ${is0 ? 0 : widthPct}%;"></div>
             <div class="funnel-bar-text">
-              <span class="funnel-stage-label">${stage.name}</span>
+              <span class="funnel-stage-label">${escapeHTML(stage.name)}</span>
               <span class="funnel-stage-val">${stage.count} count</span>
             </div>
           </div>
@@ -2169,30 +2214,36 @@ document.addEventListener("DOMContentLoaded", () => {
         const nextStage = funnel.stages[idx + 1];
         const dropoff = 100 - (stage.count > 0 ? (nextStage.count / stage.count * 100) : 0);
         const hasDrop = stage.count > 0 && dropoff > 10;
-        
-        container.innerHTML += `
+
+        funnelHtml += `
           <div class="funnel-dropoff-label" style="opacity: ${hasDrop ? 1 : 0.2}">
             ↓ Dropoff rate: ${dropoff.toFixed(1)}%
           </div>
         `;
       }
     });
+    container.innerHTML = funnelHtml;
 
-    // Set side panels
-    document.getElementById("funnel-dropoff-stage-title").textContent = `Critical Drop-off Stage: ${funnel.dropoffStage.name}`;
-    document.getElementById("funnel-dropoff-stage-desc").textContent = 
+    // Set side panels with null checks
+    const titleEl = document.getElementById("funnel-dropoff-stage-title");
+    const descEl = document.getElementById("funnel-dropoff-stage-desc");
+    const adviceEl = document.getElementById("funnel-recommendation-text");
+
+    if (titleEl) titleEl.textContent = `Critical Drop-off Stage: ${funnel.dropoffStage.name}`;
+    if (descEl) descEl.textContent =
       `The pipeline registers the steepest drop-off during the "${funnel.dropoffStage.name}" stage converting at just ${funnel.dropoffStage.value.toFixed(1)}%.`;
-    document.getElementById("funnel-recommendation-text").textContent = funnel.advice;
+    if (adviceEl) adviceEl.textContent = funnel.advice;
   }
 
   // 9. Recommendations View
   function renderRecommendationsView() {
     const breakdown = dp.getCounsellorBreakdown();
     const recs = ae.generateRecommendations(breakdown, dp.filters);
-    renderCoachingTaskBoard(recs);
-    renderDataQualityPanel();
+    if (window.renderCoachingTaskBoard) renderCoachingTaskBoard(recs);
+    if (window.renderDataQualityPanel) renderDataQualityPanel();
 
     const listContainer = document.getElementById("recommendations-full-list");
+    if (!listContainer) return;
     listContainer.innerHTML = "";
 
     if (recs.length === 0) {
@@ -2205,24 +2256,32 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
+    let recsHtml = "";
     recs.forEach(rec => {
       const isHigh = rec.priority === "High";
       const isMed = rec.priority === "Medium";
       const pClass = isHigh ? "high" : isMed ? "medium" : "low";
+      const escapedEmail = escapeHTML(rec.counsellorEmail);
+      const escapedAction = escapeHTML(rec.actionText);
+      const escapedName = escapeHTML(rec.counsellorName);
 
-      listContainer.innerHTML += `
+      recsHtml += `
         <div class="recommendation-item ${pClass}">
           <div class="recommendation-header">
-            <h4 class="recommendation-subject">${rec.subject}</h4>
+            <h4 class="recommendation-subject">${escapeHTML(rec.subject)}</h4>
             <span class="recommendation-priority">${rec.priority} Priority</span>
           </div>
-          <p class="recommendation-desc">${rec.desc}</p>
-          <div class="recommendation-action" onclick="window.applyRecommendationPrompt('${rec.counsellorEmail}', '${rec.actionText}')">
-            <span>⚡ Apply Action: ${rec.actionText}</span>
+          <p class="recommendation-desc">${escapeHTML(rec.desc)}</p>
+          <div class="recommendation-action" onclick="window.applyRecommendationPrompt('${escapedEmail}', '${escapedAction}')">
+            <span>⚡ Apply Action: ${escapedAction}</span>
           </div>
+          <button class="rec-email-btn" onclick="window.emailCounsellorFeedback('${escapedEmail}')">
+            📧 Email AI feedback to ${escapedName}
+          </button>
         </div>
       `;
     });
+    listContainer.innerHTML = recsHtml;
   }
 
   // 10. Team Performance Trends View
@@ -2242,8 +2301,8 @@ document.addEventListener("DOMContentLoaded", () => {
         counsellor.rawRecords.forEach(record => {
           // Determine time period key based on selection
           let periodKey = "Unknown";
-          if (record.date) {
-            const date = new Date(record.date);
+          if (record["Date"]) {
+            const date = new Date(record["Date"]);
             if (period === "weekly") {
               // Format as Year-WWeek (e.g., 2026-W25)
               const year = date.getFullYear();
@@ -2309,15 +2368,16 @@ document.addEventListener("DOMContentLoaded", () => {
       let totalRiskScore = 0;
       let count = records.length;
 
-      records.forEach(record => {
-        totalAdmissions += record.totalAdmissions || 0;
-        totalConnected += record.totalConnected || 0;
-        totalDials += record.totalDials || 0;
-
-        // Calculate risk score for each record
-        const risk = ae.calculateRiskScore(record);
-        totalRiskScore += risk.score;
-      });
+      // Aggregate the raw records for this period+team group, then score once.
+      // (Raw Excel rows use keys like "Total admissions" / "Connected calls";
+      //  getAggregates resolves all column-name variants and returns the shape
+      //  calculateRiskScore expects.)
+      const groupAggr = dp.getAggregates(records);
+      totalAdmissions = groupAggr.totalAdmissions;
+      totalConnected = groupAggr.totalConnected;
+      totalDials = groupAggr.totalDials;
+      const groupRisk = ae.calculateRiskScore({ ...groupAggr, rawRecords: records });
+      totalRiskScore = groupRisk.score;
 
       let metricValue = 0;
       switch (metric) {
@@ -2331,7 +2391,8 @@ document.addEventListener("DOMContentLoaded", () => {
           metricValue = totalDials / count;
           break;
         case "risk":
-          metricValue = totalRiskScore / count;
+          // totalRiskScore is now a single group-level score (0-100), not a sum
+          metricValue = totalRiskScore;
           break;
       }
 
@@ -2410,6 +2471,7 @@ document.addEventListener("DOMContentLoaded", () => {
       .map(([team, data]) => ({ team, ...data }));
 
     // Populate table
+    let trendTableHtml = "";
     sortedTeamsByValue.forEach((teamData, index) => {
       const { team, avgValue, periodCount } = teamData;
 
@@ -2446,9 +2508,9 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
 
-      tableBody.innerHTML += `
+      trendTableHtml += `
         <tr>
-          <td style="font-weight:700; color:var(--accent-info);">${team}</td>
+          <td style="font-weight:700; color:var(--accent-info);">${escapeHTML(team)}</td>
           <td>${avgValue}</td>
           <td><span class="status-pill">${periodCount} periods</span></td>
           <td>-</td>
@@ -2457,6 +2519,7 @@ document.addEventListener("DOMContentLoaded", () => {
         </tr>
       `;
     });
+    tableBody.innerHTML = trendTableHtml;
 
     // Create line chart for trends
     const ctx = document.getElementById("team-trends-chart").getContext("2d");
@@ -2595,6 +2658,92 @@ document.addEventListener("DOMContentLoaded", () => {
     alert(`Triggered action plan: "${actionText}" for ${email}.\nNotification dispatched to counsellor email and Team Lead.`);
   };
 
+  // --- Lightweight toast notifications ---
+  function showToast(message, type = "info") {
+    let container = document.getElementById("toast-container");
+    if (!container) {
+      container = document.createElement("div");
+      container.id = "toast-container";
+      container.style.cssText =
+        "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;flex-direction:column;gap:8px;align-items:center;";
+      document.body.appendChild(container);
+    }
+    const colors = { info: "#2563eb", success: "#16a34a", error: "#dc2626" };
+    const toast = document.createElement("div");
+    toast.textContent = message;
+    toast.style.cssText =
+      `background:${colors[type] || colors.info};color:#fff;padding:12px 20px;border-radius:8px;` +
+      "font-size:14px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,0.35);max-width:90vw;";
+    container.appendChild(toast);
+    setTimeout(() => {
+      toast.style.transition = "opacity .4s";
+      toast.style.opacity = "0";
+      setTimeout(() => toast.remove(), 400);
+    }, 4000);
+  }
+  window.showToast = showToast;
+
+  // --- Email a counsellor their AI-generated feedback (good or bad) via the backend ---
+  window.emailCounsellorFeedback = async (email) => {
+    const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    try {
+      if (!email || !EMAIL_RE.test(email)) {
+        showToast("This counsellor has no valid email address.", "error");
+        return;
+      }
+      const c = dp.getCounsellorBreakdown().find((x) => x.email === email);
+      if (!c) {
+        showToast("Counsellor data not found.", "error");
+        return;
+      }
+
+      // Build the AI feedback from the existing analytics engine.
+      const risk = ae.calculateRiskScore(c);
+      const diagnostics = ae.diagnosePerformance(c);
+      const predictor = ae.predictTargetAchievement(c);
+      const summary = generateAISummaryText(c, risk, diagnostics, predictor).replace(/\*\*/g, "");
+      const items = ae.generateRecommendations([c], dp.filters).map((r) => ({
+        subject: r.subject,
+        priority: r.priority,
+        desc: r.desc,
+        actionText: r.actionText,
+      }));
+
+      showToast(`Sending AI feedback to ${c.name}…`, "info");
+
+      const resp = await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: email,
+          counsellorName: c.name,
+          riskZone: risk.category,
+          riskScore: Math.round(risk.score),
+          summary,
+          items,
+          subject: `Your AI Performance Feedback — ${c.name}`,
+        }),
+      });
+      // If the response isn't JSON, the email API isn't there — the user is most
+      // likely running the static dev server ('npm run dev') instead of 'npm start'.
+      const contentType = resp.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        showToast("❌ Email API not found. Stop 'npm run dev' and run 'npm start' instead.", "error");
+        return;
+      }
+
+      const data = await resp.json().catch(() => null);
+      if (resp.ok && data && data.ok) {
+        showToast(`✅ AI feedback emailed to ${c.name}`, "success");
+      } else {
+        showToast(`❌ ${(data && data.error) || `Server error (${resp.status}).`}`, "error");
+      }
+    } catch (err) {
+      console.error("emailCounsellorFeedback error:", err);
+      showToast("❌ Email server not reachable. Start it with 'npm start' (not 'npm run dev').", "error");
+    }
+  };
+
   // --- AI INSIGHTS TICKER SLIDESHOW ---
   function generateAIInsightsList() {
     const aggr = dp.getAggregates();
@@ -2677,16 +2826,20 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // Build DOM elements
+    let insightsHtml = "";
+    let dotsHtml = "";
     list.forEach((ins, idx) => {
-      container.innerHTML += `
+      insightsHtml += `
         <div class="insights-slide ${idx === 0 ? 'active' : ''}" data-slide="${idx}">
-          ${ins}
+          ${escapeHTML(ins)}
         </div>
       `;
-      dotsNav.innerHTML += `
+      dotsHtml += `
         <div class="insights-dot ${idx === 0 ? 'active' : ''}" data-dot="${idx}" onclick="window.gotoInsightSlide(${idx})"></div>
       `;
     });
+    container.innerHTML = insightsHtml;
+    dotsNav.innerHTML = dotsHtml;
 
     // Set Interval to slide
     insightsInterval = setInterval(() => {
@@ -2771,23 +2924,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const diagList = document.getElementById("drawer-diagnostics-list");
     diagList.innerHTML = "";
+    let drawerDiagHtml = "";
     diagnostics.forEach(diag => {
       const isSafe = diag.severity === "Safe";
       const isCritical = diag.severity === "Critical";
       const pillClass = isSafe ? "safe" : isCritical ? "critical" : "warning";
       const flag = isSafe ? "✓" : isCritical ? "🛑" : "⚠️";
 
-      diagList.innerHTML += `
+      drawerDiagHtml += `
         <div class="diagnostic-card ${pillClass}" style="margin-bottom:8px; padding: 10px; border-radius: 6px; font-size: 0.75rem;">
           <div class="diagnostic-indicator" style="margin-right: 8px;">${flag}</div>
           <div class="diagnostic-info">
-            <div class="diagnostic-title" style="font-weight:700;">${diag.type} (${diag.severity})</div>
-            <div class="diagnostic-desc" style="margin-top: 2px; color: var(--text-secondary);">${diag.explanation}</div>
-            <div style="font-size:0.7rem; font-weight:600; color:var(--text-primary); margin-top:4px;">Action: ${diag.action}</div>
+            <div class="diagnostic-title" style="font-weight:700;">${escapeHTML(diag.type)} (${diag.severity})</div>
+            <div class="diagnostic-desc" style="margin-top: 2px; color: var(--text-secondary);">${escapeHTML(diag.explanation)}</div>
+            <div style="font-size:0.7rem; font-weight:600; color:var(--text-primary); margin-top:4px;">Action: ${escapeHTML(diag.action)}</div>
           </div>
         </div>
       `;
     });
+    diagList.innerHTML = drawerDiagHtml;
 
     const warnEl = document.getElementById("drawer-hourly-simulated-warning");
     if (warnEl) {

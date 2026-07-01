@@ -585,9 +585,7 @@ def _load_sheet_raw(
 
     # Resolve Excel error tokens → NaN so numeric coercion handles them cleanly
     EXCEL_ERRORS = {"#REF!", "#DIV/0!", "#N/A", "#VALUE!", "#NAME?", "#NUM!", "#NULL!"}
-    df.replace(list(
-        
-    ), pd.NA, inplace=True)
+    df.replace(list(EXCEL_ERRORS), pd.NA, inplace=True)
 
     return df
 
